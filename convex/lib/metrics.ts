@@ -47,6 +47,8 @@ export type DerivedMetrics = {
   fwdEpsBasis?: "consensus" | "modelled";
   modelledNtmEps?: number;
   isGaapLoss?: boolean;
+  moatTrend?: number;
+  moatDrivers?: { label: string; delta: number; unit: string }[];
   quartersAvailable: number;
   latestPeriodEnd?: string;
 };
@@ -171,6 +173,57 @@ export function deriveMetrics(
   const modelledNtmEps = modelNtmEps(q, epsTtm);
   const fwdEps = consensusEps ?? modelledNtmEps;
 
+  // ---- moat direction -------------------------------------------------
+  // Is the competitive position getting better or worse? Pricing power shows
+  // up in gross margin, operating leverage in operating margin, and cash
+  // conversion in FCF — while dilution quietly transfers the business away
+  // from existing holders. All four are YoY so they are seasonally clean.
+  const opPriorTtm = prior.length === 4 ? sum(prior.map((x) => x.opIncome)) : undefined;
+  const ocfPriorTtm = prior.length === 4 ? sum(prior.map((x) => x.operatingCashFlow)) : undefined;
+  const capexPriorTtm = prior.length === 4 ? sum(prior.map((x) => x.capex)) : undefined;
+  const fcfPriorTtm =
+    ocfPriorTtm !== undefined && capexPriorTtm !== undefined
+      ? ocfPriorTtm - Math.abs(capexPriorTtm)
+      : undefined;
+
+  const deltaBps = (nowVal?: number, priorVal?: number, nowBase?: number, priorBase?: number) => {
+    const a = ratio(nowVal, nowBase);
+    const b = ratio(priorVal, priorBase);
+    return a !== undefined && b !== undefined ? (a - b) * 10000 : undefined;
+  };
+
+  const gmBps = grossMarginDeltaYoY;
+  const opBps = deltaBps(opTtm, opPriorTtm, revenueTtm, revenuePriorTtm);
+  const fcfBps = deltaBps(fcfTtm, fcfPriorTtm, revenueTtm, revenuePriorTtm);
+  const dilution = growth(q[0]?.sharesDiluted, q[4]?.sharesDiluted);
+
+  const scale = (value: number | undefined, lo: number, hi: number) =>
+    value === undefined ? undefined : Math.max(-100, Math.min(100, ((value - lo) / (hi - lo)) * 200 - 100));
+
+  const parts: { w: number; v: number | undefined }[] = [
+    { w: 0.35, v: scale(gmBps, -300, 300) },
+    { w: 0.2, v: scale(opBps, -400, 400) },
+    { w: 0.25, v: scale(fcfBps, -500, 500) },
+    { w: 0.2, v: scale(dilution === undefined ? undefined : -dilution, -0.08, 0.02) },
+  ];
+  const present = parts.filter((p) => p.v !== undefined);
+  const moatTrend =
+    present.length === 0
+      ? undefined
+      : Math.round(
+          present.reduce((s, p) => s + (p.v as number) * p.w, 0) /
+            present.reduce((s, p) => s + p.w, 0)
+        );
+
+  const moatDrivers = [
+    gmBps !== undefined ? { label: "Gross margin", delta: Math.round(gmBps), unit: "bps" } : null,
+    opBps !== undefined ? { label: "Operating margin", delta: Math.round(opBps), unit: "bps" } : null,
+    fcfBps !== undefined ? { label: "FCF margin", delta: Math.round(fcfBps), unit: "bps" } : null,
+    dilution !== undefined
+      ? { label: "Share count", delta: Math.round(dilution * 1000) / 10, unit: "%" }
+      : null,
+  ].filter((x): x is { label: string; delta: number; unit: string } => x !== null);
+
   return {
     revenueTtm,
     revYoY,
@@ -197,6 +250,8 @@ export function deriveMetrics(
     fwdEpsBasis: fwdEps === undefined ? undefined : consensusEps !== undefined ? "consensus" : "modelled",
     modelledNtmEps,
     isGaapLoss: netTtm !== undefined ? netTtm < 0 : undefined,
+    moatTrend,
+    moatDrivers,
     quartersAvailable: q.length,
     latestPeriodEnd: latest?.periodEnd,
   };
@@ -221,6 +276,7 @@ export function derivePriceStats(bars: { date: string; c: number; v: number }[])
   return {
     last: last.c,
     prevClose: bars[bars.length - 2]?.c,
+    spark30: bars.slice(-30).map((b) => Math.round(b.c * 100) / 100),
     wk52High,
     wk52Low,
     drawdownFromHigh: wk52High > 0 ? 1 - last.c / wk52High : 0,

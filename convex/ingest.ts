@@ -135,26 +135,47 @@ async function doRefreshTicker(
   // ---- peers --------------------------------------------------------
   let peerMedianFwdPe: number | undefined;
   let peerMedianEvToSales: number | undefined;
+  let peerRet3m: number | undefined;
+  let peerRevYoY: number | undefined;
+  let peerCount = 0;
   const universeRow = await ctx.runQuery(internal.data.universeRow, { ticker: t });
   if (universeRow?.sicCode) {
     const peers = await ctx.runMutation(internal.data.rebuildSicPeers, {
       ticker: t,
       sicCode: universeRow.sicCode,
     });
+    peerCount = peers.length;
     if (peers.length >= 3) {
       const peerMetrics = await ctx.runQuery(internal.data.metricsFor, { tickers: peers });
+      const peerStats = await ctx.runQuery(internal.data.priceStatsFor, { tickers: peers });
+      // A peer on depressed trailing earnings can show a 3000x P/E. Including
+      // it says nothing about a fair multiple but drags the median far enough
+      // to make every price look cheap, so the sample is trimmed first.
       peerMedianFwdPe = median(
         peerMetrics
           .map((m) => m.fwdPe ?? m.peTtm)
-          .filter((x): x is number => typeof x === "number")
+          .filter((x): x is number => typeof x === "number" && x >= 5 && x <= 60)
       );
       peerMedianEvToSales = median(
-        peerMetrics.map((m) => m.evToSales).filter((x): x is number => typeof x === "number")
+        peerMetrics
+          .map((m) => m.evToSales)
+          .filter((x): x is number => typeof x === "number" && x > 0 && x <= 30)
+      );
+      peerRevYoY = median(
+        peerMetrics.map((m) => m.revYoY).filter((x): x is number => typeof x === "number")
+      );
+      peerRet3m = median(
+        peerStats.map((s) => s.ret3m).filter((x): x is number => typeof x === "number")
       );
     } else {
       notes.push(`only ${peers.length} scored peers in SIC ${universeRow.sicCode} — peer medians omitted`);
     }
   }
+
+  await ctx.runMutation(internal.data.storeMetrics, {
+    ticker: t,
+    metrics: { ...metrics, peerRet3m, peerRevYoY, peerCount },
+  });
 
   // ---- score --------------------------------------------------------
   const prior = await ctx.runQuery(internal.data.priorScore, { ticker: t });
@@ -183,6 +204,9 @@ async function doRefreshTicker(
   await ctx.runMutation(internal.data.storeScore, { ticker: t, score: result });
 
   // ---- buy bands ----------------------------------------------------
+  // Per-ticker preset wins over the global one; "fixed" pins the anchor
+  // multiple instead of tracking the peer median.
+  const bandSettings = await ctx.runQuery(internal.settings.effectiveBands, { ticker: t });
   const bands = buildBands({
     price: stats?.last,
     fwdEps: metrics.fwdEps,
@@ -193,7 +217,8 @@ async function doRefreshTicker(
     sharesDiluted: quarters[0]?.sharesDiluted,
     peerMedianFwdPe,
     peerMedianEvToSales,
-    targetMultipleOverride: undefined,
+    targetMultipleOverride:
+      bandSettings.mode === "fixed" ? bandSettings.fixedMultiple : undefined,
   });
   if (bands) await ctx.runMutation(internal.data.storeBands, { ticker: t, bands });
 
@@ -206,7 +231,15 @@ async function doRefreshTicker(
     changesSincePrior: diffScores(prior, result),
   });
 
-  const alertsFired = await evaluateAlerts(ctx, t, metrics, stats, result, bands, prior);
+  const alertsFired = await evaluateAlerts(
+    ctx,
+    t,
+    { ...metrics, peerRet3m, peerRevYoY, peerCount },
+    stats,
+    result,
+    bands,
+    prior
+  );
 
   return {
     ticker: t,
@@ -249,7 +282,11 @@ function diffScores(
 async function evaluateAlerts(
   ctx: ActionCtx,
   ticker: string,
-  m: ReturnType<typeof deriveMetrics>,
+  m: ReturnType<typeof deriveMetrics> & {
+    peerRet3m?: number;
+    peerRevYoY?: number;
+    peerCount?: number;
+  },
   stats: ReturnType<typeof derivePriceStats>,
   s: ReturnType<typeof computeScore>,
   bands: ReturnType<typeof buildBands>,
@@ -346,6 +383,70 @@ async function evaluateAlerts(
       `${ticker}: good business, stretched entry`,
       `Composite ${s.composite} but asymmetry only ${s.asymmetry} (crowdedness ${s.crowdedness}). ` +
         `Trim rather than add.`,
+      30
+    );
+  }
+
+  // Moat direction — the thing that decides whether a thesis survives years,
+  // not quarters. Fires on a clear move, not on noise.
+  if (m.moatTrend !== undefined && m.moatTrend <= -25) {
+    const worst = (m.moatDrivers ?? [])
+      .filter((d) => (d.label === "Share count" ? d.delta > 0 : d.delta < 0))
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))[0];
+    await fire(
+      "MOAT_WEAKENING",
+      "high",
+      `${ticker}: moat trending down`,
+      `Moat direction ${m.moatTrend}/100` +
+        (worst ? ` — led by ${worst.label.toLowerCase()} ${worst.delta > 0 ? "+" : ""}${worst.delta}${worst.unit}.` : "."),
+      45
+    );
+  }
+  if (m.moatTrend !== undefined && m.moatTrend >= 35) {
+    await fire(
+      "MOAT_STRENGTHENING",
+      "medium",
+      `${ticker}: moat trending up`,
+      `Moat direction +${m.moatTrend}/100 — margins and cash conversion improving year over year.`,
+      45
+    );
+  }
+
+  // Peer-relative: the same drawdown means different things depending on
+  // whether the whole group moved or just this name.
+  if (m.peerRet3m !== undefined && stats?.ret3m !== undefined) {
+    const gap = stats.ret3m - m.peerRet3m;
+    if (gap <= -0.15) {
+      await fire(
+        "PEER_LAGGING",
+        "high",
+        `${ticker}: lagging its peer group`,
+        `Down ${pct(stats.ret3m)} over 3 months against a peer median of ${pct(m.peerRet3m)} ` +
+          `(${m.peerCount} peers). Company-specific, not sector-wide.`,
+        21
+      );
+    } else if (gap >= 0.25) {
+      await fire(
+        "PEER_LEADING",
+        "medium",
+        `${ticker}: re-rating ahead of peers`,
+        `Up ${pct(stats.ret3m)} over 3 months against a peer median of ${pct(m.peerRet3m)}. ` +
+          `Some of the thesis is now priced in.`,
+        21
+      );
+    }
+  }
+
+  // Explicit exit prompt, distinct from "expensive": the price has left the
+  // top of the band table entirely.
+  const topBand = bands?.bands[bands.bands.length - 1];
+  if (topBand && stats?.last !== undefined && stats.last > topBand.priceHi) {
+    await fire(
+      "OVERVALUED_EXIT",
+      "high",
+      `${ticker}: above the band table`,
+      `Price ${fmt(stats.last)} is above ${fmt(topBand.priceHi)}, the top of the ` +
+        `${bands?.targetMultiple}x anchor. Nothing in the current numbers supports this level.`,
       30
     );
   }

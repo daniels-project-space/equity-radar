@@ -67,6 +67,9 @@ export default defineSchema({
     ret3m: v.optional(v.number()),
     ret12m: v.optional(v.number()),
     advUsd: v.optional(v.number()),
+    /** Denormalized 30-day close series so the card grid needs one query, not
+     *  a full price-table scan per ticker on every reactive re-render. */
+    spark30: v.optional(v.array(v.number())),
     updatedAt: v.number(),
   }).index("by_ticker", ["ticker"]),
 
@@ -151,6 +154,14 @@ export default defineSchema({
     fwdEpsBasis: v.optional(v.union(v.literal("consensus"), v.literal("modelled"))),
     modelledNtmEps: v.optional(v.number()),
     isGaapLoss: v.optional(v.boolean()),
+    /** Moat direction, -100..100. Derived from margin, FCF and dilution trends
+     *  rather than score history, so it is meaningful from day one. */
+    moatTrend: v.optional(v.number()),
+    moatDrivers: v.optional(v.array(v.object({ label: v.string(), delta: v.number(), unit: v.string() }))),
+    /** Peer-relative context, filled in once a peer group has >= 3 scored names. */
+    peerRet3m: v.optional(v.number()),
+    peerRevYoY: v.optional(v.number()),
+    peerCount: v.optional(v.number()),
     quartersAvailable: v.number(),
     /** Period end of the newest quarter we have. Foreign private issuers file
      *  20-F/6-K and can lag domestic filers by two or three quarters, so this
@@ -300,6 +311,28 @@ export default defineSchema({
     alphaVsSpy90d: v.optional(v.number()),
     alphaVsSpy180d: v.optional(v.number()),
   }).index("by_ticker", ["ticker"]),
+
+  /**
+   * Buy-zone and notification preferences. `scope` is either "global" or
+   * "ticker:XYZ"; a ticker row overrides the global one field by field.
+   */
+  settings: defineTable({
+    scope: v.string(),
+    bands: v.optional(
+      v.object({
+        mode: v.union(v.literal("peerMedian"), v.literal("fixed")),
+        fixedMultiple: v.optional(v.number()),
+      })
+    ),
+    notify: v.optional(
+      v.object({
+        enabled: v.boolean(),
+        minSeverity: v.union(v.literal("critical"), v.literal("high"), v.literal("medium")),
+        mutedTypes: v.array(v.string()),
+      })
+    ),
+    updatedAt: v.number(),
+  }).index("by_scope", ["scope"]),
 
   config: defineTable({
     key: v.string(),

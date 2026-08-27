@@ -63,6 +63,21 @@ export const metricsFor = internalQuery({
   },
 });
 
+export const priceStatsFor = internalQuery({
+  args: { tickers: v.array(v.string()) },
+  handler: async (ctx, { tickers }) => {
+    const out = [];
+    for (const t of tickers) {
+      const s = await ctx.db
+        .query("price_stats")
+        .withIndex("by_ticker", (i) => i.eq("ticker", t))
+        .unique();
+      if (s) out.push(s);
+    }
+    return out;
+  },
+});
+
 export const peersFor = internalQuery({
   args: { ticker: v.string() },
   handler: async (ctx, { ticker }) => {
@@ -131,6 +146,7 @@ export const storePriceStats = internalMutation({
       ret3m: v.optional(v.number()),
       ret12m: v.optional(v.number()),
       advUsd: v.optional(v.number()),
+      spark30: v.optional(v.array(v.number())),
     }),
   },
   handler: async (ctx, { ticker, stats }) => {

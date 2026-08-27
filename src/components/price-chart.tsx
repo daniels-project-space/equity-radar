@@ -18,6 +18,63 @@ type Bar = { date: string; o: number; h: number; l: number; c: number; v: number
 /** Height lightweight-charts gives the time axis at this font size. */
 const TIME_AXIS_H = 32;
 
+type Marker = {
+  time: string;
+  position: "belowBar" | "aboveBar";
+  color: string;
+  shape: "arrowUp" | "arrowDown";
+  text: string;
+};
+
+/**
+ * Historical crossings into the buy zone and out above the band table.
+ *
+ * These are markers on what already happened at today's valuation anchor — not
+ * a backtest and not a recommendation. Because the anchor moves with earnings
+ * and the peer group, the same chart will mark different days next quarter.
+ * Crossings within 10 sessions of the previous one are dropped so a stock
+ * oscillating on a boundary does not produce a wall of arrows.
+ */
+function crossings(bars: Bar[], bands: Band[]): Marker[] {
+  if (bands.length === 0 || bars.length < 2) return [];
+
+  const buyBands = bands.filter((b) => b.action === "BUY" || b.action === "BUY_AGGRESSIVE");
+  const buyCeiling = buyBands.length ? Math.max(...buyBands.map((b) => b.priceHi)) : undefined;
+  const trimBand = bands.find((b) => b.action === "TRIM");
+  const trimFloor = trimBand?.priceLo;
+
+  const out: Marker[] = [];
+  let lastIdx = -99;
+
+  for (let i = 1; i < bars.length; i++) {
+    const prev = bars[i - 1].c;
+    const now = bars[i].c;
+    if (i - lastIdx < 10) continue;
+
+    if (buyCeiling !== undefined && prev > buyCeiling && now <= buyCeiling) {
+      out.push({
+        time: bars[i].date,
+        position: "belowBar",
+        color: "#34d399",
+        shape: "arrowUp",
+        text: "entry",
+      });
+      lastIdx = i;
+    } else if (trimFloor !== undefined && prev < trimFloor && now >= trimFloor) {
+      out.push({
+        time: bars[i].date,
+        position: "aboveBar",
+        color: "#f87171",
+        shape: "arrowDown",
+        text: "rich",
+      });
+      lastIdx = i;
+    }
+  }
+
+  return out.slice(-14);
+}
+
 const RANGES = [
   { label: "3M", days: 63 },
   { label: "1Y", days: 252 },
@@ -39,6 +96,7 @@ export function PriceChart({ bars, bands }: { bars: Bar[]; bands: Band[] }) {
   const [rects, setRects] = useState<{ band: Band; top: number; height: number }[]>([]);
   const [paneHeight, setPaneHeight] = useState(0);
   const [showBands, setShowBands] = useState(true);
+  const [showMarkers, setShowMarkers] = useState(true);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -132,10 +190,11 @@ export function PriceChart({ bars, bands }: { bars: Bar[]; bands: Band[] }) {
     series.setData(
       slice.map((b) => ({ time: b.date, open: b.o, high: b.h, low: b.l, close: b.c }))
     );
+    series.setMarkers(showMarkers ? crossings(slice, bands) : []);
     chart.timeScale().fitContent();
     requestAnimationFrame(recomputeBands);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bars, rangeIdx, bands]);
+  }, [bars, rangeIdx, bands, showMarkers]);
 
   return (
     <div>
@@ -155,15 +214,29 @@ export function PriceChart({ bars, bands }: { bars: Bar[]; bands: Band[] }) {
             </button>
           ))}
         </div>
-        <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--muted)]">
-          <input
-            type="checkbox"
-            checked={showBands}
-            onChange={(e) => setShowBands(e.target.checked)}
-            className="accent-[var(--accent)]"
-          />
-          Buy zones
-        </label>
+        <div className="flex items-center gap-3">
+          <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--muted)]">
+            <input
+              type="checkbox"
+              checked={showBands}
+              onChange={(e) => setShowBands(e.target.checked)}
+              className="accent-[var(--accent)]"
+            />
+            Zones
+          </label>
+          <label
+            className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--muted)]"
+            title="Days the price crossed into the buy zone, or up out of the band table"
+          >
+            <input
+              type="checkbox"
+              checked={showMarkers}
+              onChange={(e) => setShowMarkers(e.target.checked)}
+              className="accent-[var(--accent)]"
+            />
+            Entries / exits
+          </label>
+        </div>
       </div>
 
       <div className="relative">

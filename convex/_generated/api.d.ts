@@ -16,6 +16,7 @@ import type * as lib_metrics from "../lib/metrics.js";
 import type * as lib_prices from "../lib/prices.js";
 import type * as lib_scoring from "../lib/scoring.js";
 import type * as lib_sec from "../lib/sec.js";
+import type * as settings from "../settings.js";
 import type * as universe from "../universe.js";
 import type * as watchlist from "../watchlist.js";
 
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   "lib/prices": typeof lib_prices;
   "lib/scoring": typeof lib_scoring;
   "lib/sec": typeof lib_sec;
+  settings: typeof settings;
   universe: typeof universe;
   watchlist: typeof watchlist;
 }>;

@@ -280,6 +280,14 @@ const BAND_SHAPE: { label: string; action: string; lo: number; hi: number }[] = 
 export const DEFAULT_TARGET_PE = 26;
 export const DEFAULT_TARGET_EVS = 6;
 
+/**
+ * Final guard on the anchor. Whatever the peer set or an override says, a band
+ * table built on a wildly high multiple marks the entire price history as
+ * "extremely attractive", which is worse than useless. An explicit user
+ * override is still honoured inside this range.
+ */
+const clampMultiple = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+
 export type BandResult = {
   basis: "fwdEps" | "modelledEps" | "ttmEps" | "evSales";
   basisValue: number;
@@ -322,11 +330,14 @@ export function buildBands(args: {
   const eps = fwdEps && fwdEps > 0 ? fwdEps : ttmEps && ttmEps > 0 ? ttmEps : undefined;
 
   if (eps) {
-    const target =
+    const target = clampMultiple(
       targetMultipleOverride ??
-      (peerMedianFwdPe && peerMedianFwdPe > 5 && peerMedianFwdPe < 90
-        ? peerMedianFwdPe
-        : DEFAULT_TARGET_PE);
+        (peerMedianFwdPe && peerMedianFwdPe > 5 && peerMedianFwdPe < 90
+          ? peerMedianFwdPe
+          : DEFAULT_TARGET_PE),
+      8,
+      45
+    );
     const bands = BAND_SHAPE.map((b) => ({
       label: b.label,
       action: b.action,
@@ -341,14 +352,17 @@ export function buildBands(args: {
       basisValue: eps,
       targetMultiple: r2(target),
       bands,
-      currentBand: price ? bands.find((b) => price >= b.priceLo && price < b.priceHi)?.label : undefined,
+      currentBand: bandFor(price, bands),
     };
   }
 
   if (revenueTtm && revenueTtm > 0 && sharesDiluted && sharesDiluted > 0) {
-    const target =
+    const target = clampMultiple(
       targetMultipleOverride ??
-      (peerMedianEvToSales && peerMedianEvToSales > 0.3 ? peerMedianEvToSales : DEFAULT_TARGET_EVS);
+        (peerMedianEvToSales && peerMedianEvToSales > 0.3 ? peerMedianEvToSales : DEFAULT_TARGET_EVS),
+      1,
+      8
+    );
     const priceAt = (m: number) => (m * revenueTtm + netCash) / sharesDiluted;
     const bands = BAND_SHAPE.map((b) => ({
       label: b.label,
@@ -363,11 +377,26 @@ export function buildBands(args: {
       basisValue: revenueTtm,
       targetMultiple: r2(target),
       bands,
-      currentBand: price ? bands.find((b) => price >= b.priceLo && price < b.priceHi)?.label : undefined,
+      currentBand: bandFor(price, bands),
     };
   }
 
   return null;
+}
+
+export const ABOVE_RANGE = "Above range";
+export const BELOW_RANGE = "Below range";
+
+/**
+ * A price outside the table is information, not a gap. Returning undefined
+ * renders as an empty cell, which reads as "not computed" when it actually
+ * means "further from fair value than any band covers".
+ */
+function bandFor(price: number | undefined, bands: Band[]): string | undefined {
+  if (price === undefined || bands.length === 0) return undefined;
+  const hit = bands.find((b) => price >= b.priceLo && price < b.priceHi);
+  if (hit) return hit.label;
+  return price >= bands[bands.length - 1].priceHi ? ABOVE_RANGE : BELOW_RANGE;
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;

@@ -273,6 +273,7 @@ export default function CompanyPage() {
                   {BASIS_LABEL[data.bands?.basis ?? ""] ?? "—"}, scaled. They move with the peer
                   group and with earnings — recomputed daily, not a fixed opinion.
                 </p>
+                <ZoneOverride ticker={ticker} />
                 {data.bands?.basis === "modelledEps" && (
                   <p className="mt-1.5 text-[10px] leading-snug text-[var(--warn)]">
                     Forward EPS here is <strong>modelled, not consensus</strong>: trailing EPS grown
@@ -284,6 +285,81 @@ export default function CompanyPage() {
               </>
             )}
           </Panel>
+
+          {/* moat */}
+          <Panel title="Moat direction">
+            {m?.moatTrend === undefined ? (
+              <p className="text-[11px] text-[var(--muted)]">
+                Needs eight quarters of filings to compute.
+              </p>
+            ) : (
+              <>
+                <div className="mb-3 flex items-baseline gap-2">
+                  <span
+                    className="text-[22px] font-semibold tabular"
+                    style={{
+                      color:
+                        m.moatTrend >= 15
+                          ? "var(--good)"
+                          : m.moatTrend <= -15
+                            ? "var(--bad)"
+                            : "var(--muted)",
+                    }}
+                  >
+                    {m.moatTrend > 0 ? "+" : ""}
+                    {m.moatTrend}
+                  </span>
+                  <span className="text-[11px] text-[var(--muted)]">
+                    {m.moatTrend >= 15 ? "widening" : m.moatTrend <= -15 ? "narrowing" : "stable"}
+                  </span>
+                </div>
+                <ul className="space-y-1.5">
+                  {((m.moatDrivers ?? []) as { label: string; delta: number; unit: string }[]).map((d) => {
+                    // Share count is the one driver where up is bad.
+                    const good = d.label === "Share count" ? d.delta <= 0 : d.delta >= 0;
+                    return (
+                      <li key={d.label} className="flex items-baseline justify-between text-[11px]">
+                        <span className="text-[var(--muted)]">{d.label}</span>
+                        <span
+                          className="tabular"
+                          style={{ color: good ? "var(--good)" : "var(--bad)" }}
+                        >
+                          {d.delta > 0 ? "+" : ""}
+                          {d.delta}
+                          {d.unit}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="mt-2.5 text-[10px] leading-snug text-[var(--muted)]">
+                  Year-over-year change in pricing power, operating leverage, cash conversion and
+                  dilution. It measures direction, not absolute quality.
+                </p>
+              </>
+            )}
+          </Panel>
+
+          {/* peers */}
+          {m?.peerCount !== undefined && (
+            <Panel title="Versus peers">
+              {m.peerCount < 3 ? (
+                <p className="text-[11px] leading-snug text-[var(--muted)]">
+                  Only {m.peerCount} scored peer{m.peerCount === 1 ? "" : "s"} in this industry —
+                  comparisons are omitted rather than computed from too small a sample. Add more
+                  names in the same industry to fill this in.
+                </p>
+              ) : (
+                <div className="space-y-2 text-[11px]">
+                  <PeerRow label="Revenue growth" own={m.revYoY} peer={m.peerRevYoY} />
+                  <PeerRow label="3-month return" own={p?.ret3m} peer={m.peerRet3m} />
+                  <p className="pt-1 text-[10px] text-[var(--muted)]">
+                    Median of {m.peerCount} scored companies sharing this SIC code.
+                  </p>
+                </div>
+              )}
+            </Panel>
+          )}
 
           {/* score breakdown */}
           <Panel title="Score breakdown">
@@ -338,6 +414,84 @@ export default function CompanyPage() {
           </Panel>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PeerRow({ label, own, peer }: { label: string; own?: number; peer?: number }) {
+  const gap = own !== undefined && peer !== undefined ? own - peer : undefined;
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="text-[var(--muted)]">{label}</span>
+      <span className="tabular">
+        {signedPct(own)}
+        <span className="mx-1.5 text-[var(--muted)]">vs</span>
+        <span className="text-[var(--muted)]">{signedPct(peer)}</span>
+        {gap !== undefined && (
+          <span
+            className="ml-2"
+            style={{ color: gap >= 0 ? "var(--good)" : "var(--bad)" }}
+          >
+            {gap >= 0 ? "+" : ""}
+            {(gap * 100).toFixed(1)}pp
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** Per-stock buy-zone anchor. Clearing it falls back to the global preset. */
+function ZoneOverride({ ticker }: { ticker: string }) {
+  const settings = useQuery(api.settings.all);
+  const setTickerBands = useMutation(api.settings.setTickerBands);
+  const [draft, setDraft] = useState("");
+
+  const override = settings?.overrides.find((o) => o.ticker === ticker);
+  const globalMode = settings?.global.bands.mode;
+
+  return (
+    <div className="mt-3 border-t border-[var(--line)] pt-2.5">
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
+          Anchor for {ticker}
+        </span>
+        {override && (
+          <button
+            onClick={() => setTickerBands({ ticker, bands: null })}
+            className="text-[10px] text-[var(--muted)] hover:text-[var(--text)]"
+          >
+            use global
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={3}
+          max={90}
+          step={0.5}
+          placeholder={override?.bands?.fixedMultiple ? String(override.bands.fixedMultiple) : "peer median"}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            const n = Number(draft);
+            if (Number.isFinite(n) && n >= 3 && n <= 90) {
+              setTickerBands({ ticker, bands: { mode: "fixed", fixedMultiple: n } });
+            }
+            setDraft("");
+          }}
+          className="w-24 rounded-md border border-[var(--line)] bg-[var(--panel-2)] px-2 py-1 text-[11px] tabular outline-none focus:border-[var(--accent)]"
+        />
+        <span className="text-[10px] text-[var(--muted)]">
+          {override
+            ? `pinned at ${override.bands?.fixedMultiple}x`
+            : `following global (${globalMode === "fixed" ? `${settings?.global.bands.fixedMultiple}x fixed` : "peer median"})`}
+        </span>
+      </div>
+      <p className="mt-1.5 text-[10px] leading-snug text-[var(--muted)]">
+        Takes effect on the next refresh.
+      </p>
     </div>
   );
 }
