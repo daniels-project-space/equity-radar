@@ -44,6 +44,7 @@ export default defineSchema({
     lastEvaluatedAt: v.optional(v.number()),
   }).index("by_ticker", ["ticker"]),
 
+  /** Benchmark series (SPY) lives here too — same shape, ticker "SPY". */
   prices_daily: defineTable({
     ticker: v.string(),
     date: v.string(), // YYYY-MM-DD
@@ -346,20 +347,56 @@ export default defineSchema({
     enabled: v.boolean(),
   }).index("by_slug", ["slug"]),
 
-  /** Did the signal work? Populated at 30/90/180d by a cron. */
+  /**
+   * Did the signal work? One row per fired alert, scored at 30/90/180 days
+   * against SPY. Without this the scoring weights are opinion; with it they
+   * become something that can be checked and corrected.
+   */
   signal_journal: defineTable({
     alertId: v.id("alerts"),
     ticker: v.string(),
     type: v.string(),
+    severity: v.optional(v.string()),
     firedAt: v.number(),
+    firedDate: v.string(), // YYYY-MM-DD, for aligning to price bars
     priceAtSignal: v.number(),
-    px30d: v.optional(v.number()),
-    px90d: v.optional(v.number()),
-    px180d: v.optional(v.number()),
-    alphaVsSpy30d: v.optional(v.number()),
-    alphaVsSpy90d: v.optional(v.number()),
-    alphaVsSpy180d: v.optional(v.number()),
-  }).index("by_ticker", ["ticker"]),
+    spyAtSignal: v.optional(v.number()),
+    /** Verdict at the time, so hit rate can be split by conviction. */
+    verdictAtSignal: v.optional(v.string()),
+    ret30d: v.optional(v.number()),
+    ret90d: v.optional(v.number()),
+    ret180d: v.optional(v.number()),
+    alpha30d: v.optional(v.number()),
+    alpha90d: v.optional(v.number()),
+    alpha180d: v.optional(v.number()),
+    /** True once the 180-day window has been scored and nothing more is due. */
+    settled: v.boolean(),
+  })
+    .index("by_ticker", ["ticker"])
+    .index("by_type", ["type"])
+    .index("by_settled", ["settled"])
+    .index("by_alert", ["alertId"]),
+
+  /**
+   * Native Web Push endpoints. One row per browser/device that opted in — no
+   * third-party push service, just VAPID and the browser's own push service.
+   */
+  push_subscriptions: defineTable({
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+    label: v.optional(v.string()),
+    createdAt: v.number(),
+    lastSentAt: v.optional(v.number()),
+    failureCount: v.number(),
+  }).index("by_endpoint", ["endpoint"]),
+
+  /** Alerts already pushed, so a device is never notified twice. */
+  push_log: defineTable({
+    alertId: v.id("alerts"),
+    sentAt: v.number(),
+    devices: v.number(),
+  }).index("by_alert", ["alertId"]),
 
   /**
    * Buy-zone and notification preferences. `scope` is either "global" or

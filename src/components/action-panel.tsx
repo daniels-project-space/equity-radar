@@ -30,6 +30,7 @@ const VISIBLE_GROUPS = 6;
 export function ActionPanel({ rows }: { rows: Row[] }) {
   const alerts = useQuery(api.alerts.recent, { limit: 120, unacknowledgedOnly: true });
   const settings = useQuery(api.settings.all);
+  const track = useQuery(api.journal.trackRecordByType);
   const ack = useMutation(api.alerts.acknowledge);
   const [expanded, setExpanded] = useState(false);
 
@@ -120,6 +121,23 @@ export function ActionPanel({ rows }: { rows: Row[] }) {
                         {a.title.replace(`${a.ticker}: `, "").replace(`${a.ticker} `, "")}
                       </p>
                       <p className="text-[10px] leading-snug text-[var(--muted)]">{a.detail}</p>
+                      {/* How this signal type has actually performed, once
+                          there are enough closed observations to mean it. */}
+                      {track?.[a.type] && (
+                        <p className="mt-0.5 text-[10px] tabular text-[var(--muted)]">
+                          track record:{" "}
+                          <span
+                            style={{
+                              color:
+                                track[a.type].medianAlpha >= 0 ? "var(--good)" : "var(--bad)",
+                            }}
+                          >
+                            {track[a.type].medianAlpha >= 0 ? "+" : ""}
+                            {track[a.type].medianAlpha}%
+                          </span>{" "}
+                          median 30d alpha, {track[a.type].hitRate}% hit, n={track[a.type].n}
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={() => ack({ id: a._id })}

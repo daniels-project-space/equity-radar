@@ -448,7 +448,25 @@ async function evaluateAlerts(
       payload,
       reArmDays,
     });
-    if (r.fired) fired.push(type);
+    if (r.fired) {
+      fired.push(type);
+      // Record the signal the moment it fires, with the price at that instant.
+      // Reconstructing entry prices later is guesswork; this is the only point
+      // at which the number is unambiguous.
+      if (r.id && stats?.last !== undefined) {
+        const spy = await ctx.runQuery(internal.data.priceStatsFor, { tickers: ["SPY"] });
+        await ctx.runMutation(internal.journal.record, {
+          alertId: r.id,
+          ticker,
+          type,
+          severity,
+          firedAt: Date.now(),
+          priceAtSignal: stats.last,
+          spyAtSignal: spy[0]?.last,
+          verdictAtSignal: s.verdict,
+        });
+      }
+    }
   };
 
   const band = valuation?.bands.find((b) => b.label === valuation.currentBand);

@@ -1,9 +1,150 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useEffect, useState } from "react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
-import { X } from "lucide-react";
+import { X, BellRing } from "lucide-react";
+import {
+  currentState,
+  subscribe as subscribePush,
+  unsubscribe as unsubscribePush,
+  type PushState,
+} from "@/lib/push-client";
+
+/**
+ * Native Web Push. The browser's own push service delivers these at the OS
+ * level, so an alert arrives whether or not the app is open.
+ */
+function PushSection() {
+  const vapid = useQuery(api.notify.publicKey);
+  const devices = useQuery(api.notify.deviceCount);
+  const save = useMutation(api.notify.subscribe);
+  const drop = useMutation(api.notify.unsubscribe);
+  const sendTest = useAction(api.pushActions.sendTest);
+
+  const [state, setState] = useState<PushState | "loading">("loading");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    currentState().then(setState);
+  }, []);
+
+  async function enable() {
+    if (!vapid?.key) {
+      setMessage("No VAPID key configured on the server.");
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await subscribePush(vapid.key);
+      if ("error" in result) {
+        setMessage(result.error);
+      } else {
+        await save({ ...result, label: navigator.userAgent.slice(0, 60) });
+        setState("subscribed");
+        setMessage("This device will now receive alerts.");
+      }
+    } catch (e) {
+      setMessage(String(e instanceof Error ? e.message : e).slice(0, 160));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disable() {
+    setBusy(true);
+    try {
+      const endpoint = await unsubscribePush();
+      if (endpoint) await drop({ endpoint });
+      setState("prompt");
+      setMessage("This device will no longer receive alerts.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function test() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const r = await sendTest({});
+      setMessage(
+        !r.configured
+          ? "Server has no VAPID keys configured."
+          : r.delivered > 0
+            ? `Sent to ${r.delivered} device${r.delivered === 1 ? "" : "s"}.`
+            : "No devices are subscribed yet."
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mb-7">
+      <h3 className="mb-1 flex items-center gap-1.5 text-[12px] font-semibold">
+        <BellRing size={12} /> Push notifications
+      </h3>
+      <p className="mb-3 text-[11px] leading-snug text-[var(--muted)]">
+        Delivered by your browser&apos;s own push service — no third party. Works on desktop and
+        Android; on iPhone, add the site to your home screen first.
+      </p>
+
+      {state === "unsupported" && (
+        <p className="text-[11px] text-[var(--muted)]">This browser does not support push.</p>
+      )}
+      {state === "insecure" && (
+        <p className="text-[11px] text-[var(--warn)]">
+          Push requires https — open the deployed site rather than a local address.
+        </p>
+      )}
+      {state === "denied" && (
+        <p className="text-[11px] text-[var(--bad)]">
+          Notifications are blocked for this site. Re-allow them in your browser&apos;s site
+          settings, then reload.
+        </p>
+      )}
+
+      {(state === "prompt" || state === "subscribed") && (
+        <div className="flex flex-wrap items-center gap-2">
+          {state === "prompt" ? (
+            <button
+              onClick={enable}
+              disabled={busy}
+              className="rounded-md border border-[var(--accent)] px-2.5 py-1 text-[11px] text-[var(--accent)] transition hover:bg-[var(--accent)]/10 disabled:opacity-50"
+            >
+              Enable on this device
+            </button>
+          ) : (
+            <button
+              onClick={disable}
+              disabled={busy}
+              className="rounded-md border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--text)] disabled:opacity-50"
+            >
+              Disable on this device
+            </button>
+          )}
+          <button
+            onClick={test}
+            disabled={busy}
+            className="rounded-md border border-[var(--line)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--text)] disabled:opacity-50"
+          >
+            Send test
+          </button>
+          {devices !== undefined && (
+            <span className="text-[10px] text-[var(--muted)]">
+              {devices} device{devices === 1 ? "" : "s"} subscribed
+            </span>
+          )}
+        </div>
+      )}
+
+      {message && <p className="mt-2 text-[10px] text-[var(--muted)]">{message}</p>}
+    </section>
+  );
+}
 
 const ALERT_TYPES: { type: string; label: string }[] = [
   { type: "BUY_ZONE_ENTERED", label: "Entered a buy zone" },
@@ -136,10 +277,12 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           )}
         </section>
 
+        <PushSection />
+
         <section>
-          <h3 className="mb-1 text-[12px] font-semibold">Notifications</h3>
+          <h3 className="mb-1 text-[12px] font-semibold">Alert rules</h3>
           <p className="mb-3 text-[11px] leading-snug text-[var(--muted)]">
-            In-app only. Nothing is emailed or sent anywhere.
+            These apply to both the in-app bell and push notifications.
           </p>
 
           <label className="mb-3 flex cursor-pointer items-center justify-between">

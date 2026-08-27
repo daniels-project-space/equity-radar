@@ -20,4 +20,17 @@ crons.cron("weekly universe refresh", "17 3 * * 0", internal.ingest.refreshUnive
 /** A fresh 10-K/10-Q should not wait for tomorrow's sweep. */
 crons.interval("poll filings", { hours: 6 }, internal.ingest.pollFilings, {});
 
+/** Benchmark series, needed before outcomes can be scored as alpha. */
+crons.cron("refresh benchmark", "20 22 * * 1-5", internal.pushActions.refreshBenchmark, {});
+
+/** Score matured signal windows against SPY. */
+crons.cron("score signal outcomes", "45 22 * * 1-5", internal.pushActions.markOutcomes, {});
+
+/**
+ * Native push. Frequent enough to feel immediate, and the pending query only
+ * returns alerts from the last 36 hours, so a quiet period cannot produce a
+ * burst of stale notifications.
+ */
+crons.interval("send push notifications", { minutes: 15 }, internal.pushActions.sendPending, {});
+
 export default crons;

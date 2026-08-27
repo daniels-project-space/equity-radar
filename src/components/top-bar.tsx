@@ -41,6 +41,13 @@ export function TopBar() {
           <span className="hidden text-[14px] font-semibold sm:block">Equity Radar</span>
         </Link>
 
+        <Link
+          href="/journal"
+          className="hidden shrink-0 text-[11px] text-[var(--muted)] transition hover:text-[var(--text)] sm:block"
+        >
+          Journal
+        </Link>
+
         <div className="flex-1" />
         <TickerSearch />
 

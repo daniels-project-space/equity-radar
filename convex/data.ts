@@ -544,6 +544,11 @@ export const markRelease = internalMutation({
   },
 });
 
+export const recentAlertsForJournal = internalQuery({
+  args: {},
+  handler: async (ctx) => ctx.db.query("alerts").withIndex("by_firedAt").order("desc").take(200),
+});
+
 export const startRun = internalMutation({
   args: { task: v.string() },
   handler: async (ctx, { task }) => ctx.db.insert("runs", { task, startedAt: Date.now() }),
