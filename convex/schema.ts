@@ -86,6 +86,8 @@ export default defineSchema({
     netIncome: v.optional(v.number()),
     epsDiluted: v.optional(v.number()),
     adjEps: v.optional(v.number()),
+    /** Where the adjusted figure came from — one confidence tier below XBRL. */
+    adjEpsSourceUrl: v.optional(v.string()),
     operatingCashFlow: v.optional(v.number()),
     capex: v.optional(v.number()),
     cash: v.optional(v.number()),
@@ -158,7 +160,9 @@ export default defineSchema({
     pToFcf: v.optional(v.number()),
     fwdEps: v.optional(v.number()),
     fwdPe: v.optional(v.number()),
-    fwdEpsBasis: v.optional(v.union(v.literal("consensus"), v.literal("modelled"))),
+    fwdEpsBasis: v.optional(
+      v.union(v.literal("consensus"), v.literal("guided"), v.literal("modelled"))
+    ),
     modelledNtmEps: v.optional(v.number()),
     isGaapLoss: v.optional(v.boolean()),
     /** Moat level 0..100 and direction -100..100, plus the full pillar
@@ -170,6 +174,18 @@ export default defineSchema({
     archetype: v.optional(v.string()),
     /** legacy from the four-driver moat model, cleared on re-ingest */
     moatDrivers: v.optional(v.any()),
+    /** Management outlook, extracted from the 8-K release. */
+    guidedGrowth: v.optional(v.number()),
+    guidanceDelta: v.optional(v.number()),
+    guidancePeriod: v.optional(v.string()),
+    guidanceRevLow: v.optional(v.number()),
+    guidanceRevHigh: v.optional(v.number()),
+    guidanceEpsLow: v.optional(v.number()),
+    guidanceEpsHigh: v.optional(v.number()),
+    guidanceSourceUrl: v.optional(v.string()),
+    /** How many of the last four quarters have a filed adjusted EPS. */
+    adjEpsQuarters: v.optional(v.number()),
+    epsBasis: v.optional(v.string()),
     /** Peer-relative context, filled in once a peer group has >= 3 scored names. */
     peerRet3m: v.optional(v.number()),
     peerRevYoY: v.optional(v.number()),

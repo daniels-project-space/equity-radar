@@ -230,7 +230,11 @@ export const storeQuarters = internalMutation({
       };
       if (existing) {
         // Never let an XBRL refresh clobber a press-release adjusted figure.
-        await ctx.db.patch(existing._id, { ...doc, adjEps: existing.adjEps });
+        await ctx.db.patch(existing._id, {
+          ...doc,
+          adjEps: existing.adjEps,
+          adjEpsSourceUrl: existing.adjEpsSourceUrl,
+        });
       } else {
         await ctx.db.insert("fundamentals_q", doc);
       }
@@ -354,7 +358,15 @@ export const fireAlert = internalMutation({
       .withIndex("by_ticker_type", (i) => i.eq("ticker", a.ticker).eq("type", a.type))
       .order("desc")
       .first();
-    if (prior && prior.reArmAt > now) return { fired: false, reason: "re-arm window" };
+    if (prior && prior.reArmAt > now) {
+      // Still inside the re-arm window, so this must not re-notify — but the
+      // numbers behind it have moved. Refresh the body in place, otherwise an
+      // open alert keeps quoting figures from a superseded model.
+      if (!prior.acknowledgedAt) {
+        await ctx.db.patch(prior._id, { title: a.title, detail: a.detail, payload: a.payload });
+      }
+      return { fired: false, reason: "re-arm window" };
+    }
 
     const id = await ctx.db.insert("alerts", {
       ...a,
@@ -419,6 +431,116 @@ export const rebuildSicPeers = internalMutation({
     if (existing) await ctx.db.patch(existing._id, doc);
     else await ctx.db.insert("peer_groups", doc);
     return peers;
+  },
+});
+
+/**
+ * Attaches an extracted adjusted EPS to the quarter it belongs to: the most
+ * recent period ending on or before the filing date, within a quarter's reach.
+ * Release dates trail period ends by weeks, so an exact match would almost
+ * never hit.
+ */
+export const storeAdjEps = internalMutation({
+  args: {
+    ticker: v.string(),
+    filedAt: v.string(),
+    adjEps: v.number(),
+    periodEndHint: v.optional(v.string()),
+    sourceUrl: v.string(),
+  },
+  handler: async (ctx, { ticker, filedAt, adjEps, periodEndHint, sourceUrl }) => {
+    const rows = await ctx.db
+      .query("fundamentals_q")
+      .withIndex("by_ticker", (i) => i.eq("ticker", ticker))
+      .collect();
+    if (rows.length === 0) return { matched: null as string | null };
+
+    let target = periodEndHint ? rows.find((r) => r.periodEnd === periodEndHint) : undefined;
+    if (!target) {
+      const filedMs = Date.parse(filedAt);
+      const eligible = rows
+        .filter((r) => {
+          const end = Date.parse(r.periodEnd);
+          const lag = (filedMs - end) / 86_400_000;
+          return lag >= 0 && lag <= 100;
+        })
+        .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
+      target = eligible[0];
+    }
+    if (!target) return { matched: null };
+
+    await ctx.db.patch(target._id, { adjEps, adjEpsSourceUrl: sourceUrl });
+    return { matched: target.fiscalPeriod };
+  },
+});
+
+export const storeGuidance = internalMutation({
+  args: {
+    ticker: v.string(),
+    issuedAt: v.number(),
+    periodLabel: v.string(),
+    revLow: v.optional(v.number()),
+    revHigh: v.optional(v.number()),
+    epsLow: v.optional(v.number()),
+    epsHigh: v.optional(v.number()),
+    sourceUrl: v.string(),
+    extractedBy: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("guidance")
+      .withIndex("by_ticker", (i) => i.eq("ticker", args.ticker))
+      .collect();
+    // One row per guided period; a later release supersedes an earlier guide.
+    const prior = existing.find((g) => g.periodLabel === args.periodLabel);
+    if (prior) {
+      if (prior.issuedAt > args.issuedAt) return;
+      await ctx.db.patch(prior._id, args);
+      return;
+    }
+    await ctx.db.insert("guidance", args);
+  },
+});
+
+export const guidanceFor = internalQuery({
+  args: { ticker: v.string() },
+  handler: async (ctx, { ticker }) => {
+    const rows = await ctx.db
+      .query("guidance")
+      .withIndex("by_ticker", (i) => i.eq("ticker", ticker))
+      .collect();
+    return rows.sort((a, b) => b.issuedAt - a.issuedAt);
+  },
+});
+
+export const releaseSeen = internalQuery({
+  args: { accession: v.string() },
+  handler: async (ctx, { accession }) =>
+    ctx.db
+      .query("filings")
+      .withIndex("by_accession", (i) => i.eq("accession", accession))
+      .unique(),
+});
+
+export const markRelease = internalMutation({
+  args: {
+    ticker: v.string(),
+    cik: v.string(),
+    accession: v.string(),
+    filedAt: v.string(),
+    url: v.string(),
+    processed: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("filings")
+      .withIndex("by_accession", (i) => i.eq("accession", args.accession))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, { processed: args.processed, url: args.url });
+      return;
+    }
+    await ctx.db.insert("filings", { ...args, form: "8-K" });
   },
 });
 

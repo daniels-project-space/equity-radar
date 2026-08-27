@@ -51,7 +51,8 @@ export type DerivedMetrics = {
   fwdEps?: number;
   fwdPe?: number;
   /** Where fwdEps came from — these are not interchangeable and the UI says which. */
-  fwdEpsBasis?: "consensus" | "modelled";
+  fwdEpsBasis?: "consensus" | "guided" | "modelled";
+  epsBasis?: "adjusted" | "gaap";
   modelledNtmEps?: number;
   isGaapLoss?: boolean;
   moatTrend?: number;
@@ -95,12 +96,17 @@ const median = (values: number[]): number | undefined => {
  * growth persisting in full is the exception, not the rule. This is explicitly
  * NOT a consensus figure and the UI labels it as modelled.
  */
-function modelNtmEps(quarters: Quarter[], epsTtm?: number): number | undefined {
+function modelNtmEps(quarters: Quarter[], epsTtm?: number, useAdjusted = false): number | undefined {
   if (epsTtm === undefined || epsTtm <= 0) return undefined;
+  // Growth must be measured on the same basis as the level it is applied to.
+  // Mixing a GAAP growth rate into an adjusted TTM figure understates every
+  // company whose adjustments are large — which is exactly the set that
+  // needed adjusted EPS in the first place.
+  const pick = (q?: Quarter) => (useAdjusted ? (q?.adjEps ?? q?.epsDiluted) : q?.epsDiluted);
   const yoys: number[] = [];
   for (let i = 0; i < 4; i++) {
-    const now = quarters[i]?.epsDiluted;
-    const prior = quarters[i + 4]?.epsDiluted;
+    const now = pick(quarters[i]);
+    const prior = pick(quarters[i + 4]);
     if (now === undefined || prior === undefined || prior <= 0) continue;
     yoys.push(now / prior - 1);
   }
@@ -118,7 +124,9 @@ function modelNtmEps(quarters: Quarter[], epsTtm?: number): number | undefined {
 export function deriveMetrics(
   quarters: Quarter[],
   price?: number,
-  consensusEps?: number
+  consensusEps?: number,
+  /** Midpoint of management's EPS guidance for the coming quarter, if given. */
+  guidedEpsMid?: number
 ): DerivedMetrics {
   const q = quarters.slice(0, 8);
   const cur = q.slice(0, 4);
@@ -177,8 +185,19 @@ export function deriveMetrics(
       ? marketCap + debt - cash
       : undefined;
 
-  const modelledNtmEps = modelNtmEps(q, epsTtm);
-  const fwdEps = consensusEps ?? modelledNtmEps;
+  const usingAdjusted = adjTtm !== undefined;
+  const modelledNtmEps = modelNtmEps(q, epsTtm, usingAdjusted);
+
+  // Roll the trailing year forward one quarter using management's own guide:
+  // NTM = TTM − the quarter dropping out + the quarter being guided. This is a
+  // reported number rather than a projection, so it outranks the model.
+  const droppingOut = usingAdjusted ? (q[3]?.adjEps ?? q[3]?.epsDiluted) : q[3]?.epsDiluted;
+  const guidedNtmEps =
+    guidedEpsMid !== undefined && epsTtm !== undefined && droppingOut !== undefined
+      ? epsTtm - droppingOut + guidedEpsMid
+      : undefined;
+
+  const fwdEps = consensusEps ?? guidedNtmEps ?? modelledNtmEps;
 
   // ---- moat direction -------------------------------------------------
   // Is the competitive position getting better or worse? Pricing power shows
@@ -254,8 +273,16 @@ export function deriveMetrics(
     pToFcf: marketCap !== undefined && fcfTtm !== undefined && fcfTtm > 0 ? marketCap / fcfTtm : undefined,
     fwdEps,
     fwdPe: price !== undefined && fwdEps !== undefined && fwdEps > 0 ? price / fwdEps : undefined,
-    fwdEpsBasis: fwdEps === undefined ? undefined : consensusEps !== undefined ? "consensus" : "modelled",
+    fwdEpsBasis:
+      fwdEps === undefined
+        ? undefined
+        : consensusEps !== undefined
+          ? "consensus"
+          : guidedNtmEps !== undefined
+            ? "guided"
+            : "modelled",
     modelledNtmEps,
+    epsBasis: usingAdjusted ? "adjusted" : "gaap",
     isGaapLoss: netTtm !== undefined ? netTtm < 0 : undefined,
     moatTrend,
     moatDrivers,

@@ -12,6 +12,8 @@ import type * as alerts from "../alerts.js";
 import type * as crons from "../crons.js";
 import type * as data from "../data.js";
 import type * as ingest from "../ingest.js";
+import type * as lib_earningsRelease from "../lib/earningsRelease.js";
+import type * as lib_llm from "../lib/llm.js";
 import type * as lib_metrics from "../lib/metrics.js";
 import type * as lib_moat from "../lib/moat.js";
 import type * as lib_prices from "../lib/prices.js";
@@ -33,6 +35,8 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   data: typeof data;
   ingest: typeof ingest;
+  "lib/earningsRelease": typeof lib_earningsRelease;
+  "lib/llm": typeof lib_llm;
   "lib/metrics": typeof lib_metrics;
   "lib/moat": typeof lib_moat;
   "lib/prices": typeof lib_prices;

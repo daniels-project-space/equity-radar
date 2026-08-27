@@ -467,6 +467,37 @@ function fiscalLabel(end: string): string {
 
 export type FilingRow = { form: string; filedAt: string; accession: string; url: string };
 
+/**
+ * Item 2.02 is "Results of Operations and Financial Condition" — the 8-K that
+ * carries the earnings press release. Filtering on the item code is far more
+ * reliable than guessing from exhibit filenames.
+ */
+export async function fetchEarnings8Ks(
+  cik: string,
+  limit = 8
+): Promise<{ filedAt: string; accession: string }[]> {
+  const padded = padCik(cik);
+  const data = await secJson<{
+    filings: {
+      recent: {
+        form: string[];
+        items?: string[];
+        filingDate: string[];
+        accessionNumber: string[];
+      };
+    };
+  }>(`https://data.sec.gov/submissions/CIK${padded}.json`);
+
+  const r = data.filings.recent;
+  const out: { filedAt: string; accession: string }[] = [];
+  for (let i = 0; i < r.form.length && out.length < limit; i++) {
+    if (r.form[i] !== "8-K") continue;
+    if (!(r.items?.[i] ?? "").includes("2.02")) continue;
+    out.push({ filedAt: r.filingDate[i], accession: r.accessionNumber[i] });
+  }
+  return out;
+}
+
 /** Company profile — SIC is what the default peer grouping keys off. */
 export async function fetchProfile(cik: string): Promise<{
   name: string;

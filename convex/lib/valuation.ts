@@ -43,6 +43,9 @@ export type ValuationInput = {
   /** Growth and margin drive what multiple is *deserved*, not just observed. */
   revGrowth?: number;
   grossMarginPct?: number;
+  /** Median P/E this company has actually traded at over its own history. */
+  ownMedianPe?: number;
+  ownPeSamples?: number;
   /** User anchor. Its meaning depends on archetype — P/E, EV/S or NAV premium. */
   anchorOverride?: number;
 };
@@ -129,7 +132,7 @@ const WEIGHTS: Record<Archetype, Record<string, number>> = {
   financial: { bookValue: 0.5, epsMultiple: 0.5 },
   reit: { fcfYield: 0.6, bookValue: 0.4 },
   preProfit: { evSales: 0.7, bookValue: 0.3 },
-  earnings: { epsMultiple: 0.4, evEbit: 0.25, fcfYield: 0.25, evSales: 0.1 },
+  earnings: { epsMultiple: 0.3, ownHistory: 0.25, evEbit: 0.2, fcfYield: 0.15, evSales: 0.1 },
 };
 
 /**
@@ -209,6 +212,21 @@ export function valuate(i: ValuationInput): Valuation | null {
   const peTarget = archetype === "earnings" ? anchor : DEFAULTS.pe;
   if (eps && eps > 0) {
     add("epsMultiple", "Earnings multiple", eps * peTarget, `${peTarget}x on $${eps.toFixed(2)} EPS`);
+  }
+
+  // --- own trading history ---
+  // A company that has traded at 40x for five years is not "90% overvalued"
+  // because a growth model prefers 22x — that gap is the model disagreeing
+  // with a persistent market judgement, not evidence. Mean reversion to the
+  // company's own median multiple is a separate, weaker claim than an absolute
+  // one, so it is one weighted method among several rather than the anchor.
+  if (eps && eps > 0 && i.ownMedianPe && i.ownMedianPe > 3 && (i.ownPeSamples ?? 0) >= 5) {
+    add(
+      "ownHistory",
+      "Own trading history",
+      eps * clamp(i.ownMedianPe, 5, 70),
+      `${r2(clamp(i.ownMedianPe, 5, 70))}x — its own median over ${i.ownPeSamples} quarters`
+    );
   }
 
   // --- EV/EBIT ---

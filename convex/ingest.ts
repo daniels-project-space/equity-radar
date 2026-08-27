@@ -5,7 +5,8 @@
 import { v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { fetchUniverse, fetchQuarters, fetchProfile, fetchRecentFilings } from "./lib/sec";
+import { fetchUniverse, fetchQuarters, fetchProfile, fetchRecentFilings, fetchEarnings8Ks } from "./lib/sec";
+import { findEarningsRelease, extractFromRelease } from "./lib/earningsRelease";
 import { fetchDailyBars, fetchForwardEps } from "./lib/prices";
 import { deriveMetrics, derivePriceStats } from "./lib/metrics";
 import { score as computeScore } from "./lib/scoring";
@@ -24,7 +25,7 @@ export type RefreshResult = {
   quarters: number;
   bars: number;
   fwdEps?: number;
-  fwdEpsBasis?: "consensus" | "modelled";
+  fwdEpsBasis?: "consensus" | "guided" | "modelled";
   currentBand?: string;
   archetype?: string;
   fairValue?: number;
@@ -134,12 +135,68 @@ async function doRefreshTicker(
   // Undefined unless a provider key is configured; deriveMetrics falls back to
   // its own modelled NTM figure so the app needs no API key at all.
   const consensusEps = await fetchForwardEps(t);
-  // Written once, after valuation and moat have been computed, so the row is
-  // never briefly missing its archetype-dependent fields.
-  const metrics = deriveMetrics(quarters, stats?.last, consensusEps);
+  // ---- guidance ------------------------------------------------------
+  // Management's own outlook is the only forward-looking input that is not a
+  // model or a consensus estimate. The useful signal is not the guide itself
+  // but whether it implies acceleration or deceleration against the growth
+  // just reported.
+  const guides = await ctx.runQuery(internal.data.guidanceFor, { ticker: t });
+  const latestGuide = guides[0];
+
+  const guidedEpsMid =
+    latestGuide && latestGuide.epsLow !== undefined && latestGuide.epsHigh !== undefined
+      ? (latestGuide.epsLow + latestGuide.epsHigh) / 2
+      : latestGuide?.epsLow ?? latestGuide?.epsHigh;
+  const metrics = deriveMetrics(quarters, stats?.last, consensusEps, guidedEpsMid);
+
+  // The useful guidance signal is not the guide itself but whether it implies
+  // acceleration or deceleration against the growth just reported.
+  let guidanceDelta: number | undefined;
+  let guidedGrowth: number | undefined;
+  if (latestGuide && (latestGuide.revLow !== undefined || latestGuide.revHigh !== undefined)) {
+    const lo = latestGuide.revLow ?? latestGuide.revHigh;
+    const hi = latestGuide.revHigh ?? latestGuide.revLow;
+    const mid = lo !== undefined && hi !== undefined ? (lo + hi) / 2 : undefined;
+    // quarters[0] is the last reported quarter, so the guided quarter's
+    // year-ago comparable sits at index 3.
+    const yearAgo = quarters[3]?.revenue;
+    if (mid && yearAgo && yearAgo > 0) {
+      guidedGrowth = mid / yearAgo - 1;
+      if (metrics.revYoY !== undefined) guidanceDelta = guidedGrowth - metrics.revYoY;
+    }
+  }
+
   if (metrics.marketCap) {
     await ctx.runMutation(internal.data.setUniverseMeta, { ticker: t, marketCap: metrics.marketCap });
   }
+
+  // ---- own historical multiple ---------------------------------------
+  // TTM EPS at each past quarter end, priced at the close on that date, gives
+  // the multiple the market actually assigned this company over time.
+  const ownPes: number[] = [];
+  {
+    const barByDate = new Map(storedBars.map((b) => [b.date, b.c]));
+    const closeOn = (date: string): number | undefined => {
+      if (barByDate.has(date)) return barByDate.get(date);
+      // Period ends land on weekends; walk forward to the next session.
+      for (let d = 0; d < 6; d++) {
+        const probe = new Date(Date.parse(date) + d * 86_400_000).toISOString().slice(0, 10);
+        if (barByDate.has(probe)) return barByDate.get(probe);
+      }
+      return undefined;
+    };
+    const epsOf = (q: (typeof quarters)[number]) => q.adjEps ?? q.epsDiluted;
+    for (let i = 0; i + 3 < quarters.length && ownPes.length < 12; i++) {
+      const window = quarters.slice(i, i + 4).map(epsOf);
+      if (!window.every((x): x is number => typeof x === "number")) continue;
+      const ttm = window.reduce((s: number, x: number) => s + x, 0);
+      if (ttm <= 0) continue;
+      const px = closeOn(quarters[i].periodEnd);
+      if (px === undefined) continue;
+      ownPes.push(px / ttm);
+    }
+  }
+  const ownMedianPe = median(ownPes);
 
   // ---- peers --------------------------------------------------------
   let peerMedianFwdPe: number | undefined;
@@ -184,6 +241,7 @@ async function doRefreshTicker(
   // ---- score (after valuation, which it depends on) ------------------
   const prior = await ctx.runQuery(internal.data.priorScore, { ticker: t });
   const scoreInputs = {
+    guidanceDelta,
     revYoY: metrics.revYoY,
     revAccel: metrics.revAccel,
     epsYoY: metrics.epsYoY,
@@ -233,6 +291,8 @@ async function doRefreshTicker(
     peerMedianEvToSales,
     revGrowth: metrics.revYoY,
     grossMarginPct: metrics.grossMarginPct,
+    ownMedianPe,
+    ownPeSamples: ownPes.length,
     anchorOverride: bandSettings.mode === "fixed" ? bandSettings.fixedMultiple : undefined,
   });
   if (valuation) await ctx.runMutation(internal.data.storeBands, { ticker: t, bands: valuation });
@@ -270,6 +330,15 @@ async function doRefreshTicker(
       moatTrend: moat.direction,
       moatSummary: moat.summary,
       moatPillars: moat.pillars,
+      guidedGrowth,
+      guidanceDelta,
+      guidancePeriod: latestGuide?.periodLabel,
+      guidanceRevLow: latestGuide?.revLow,
+      guidanceRevHigh: latestGuide?.revHigh,
+      guidanceEpsLow: latestGuide?.epsLow,
+      guidanceEpsHigh: latestGuide?.epsHigh,
+      guidanceSourceUrl: latestGuide?.sourceUrl,
+      adjEpsQuarters: quarters.slice(0, 4).filter((q) => q.adjEps !== undefined).length,
     },
   });
 
@@ -562,6 +631,174 @@ export const refreshWatchlist = internalAction({
       error: failed.length ? failed.join(" | ").slice(0, 1000) : undefined,
     });
     return { processed, failed };
+  },
+});
+
+/**
+ * Adjusted EPS + guidance from 8-K Item 2.02 releases.
+ *
+ * Runs per ticker over the most recent earnings 8-Ks, skipping any accession
+ * already processed so repeat runs cost nothing. Extraction is verified
+ * against the source text before storage — see lib/earningsRelease.ts.
+ */
+async function doExtractReleases(
+  ctx: ActionCtx,
+  ticker: string,
+  cik: string,
+  limit: number,
+  force = false
+): Promise<{ ticker: string; processed: number; adjEps: number; guidance: number; notes: string[] }> {
+  const notes: string[] = [];
+  let processed = 0;
+  let adjEpsCount = 0;
+  let guidanceCount = 0;
+
+  let filings: { filedAt: string; accession: string }[] = [];
+  try {
+    filings = await fetchEarnings8Ks(cik, limit);
+  } catch (e) {
+    return { ticker, processed: 0, adjEps: 0, guidance: 0, notes: [`8-K list: ${String(e)}`] };
+  }
+
+  for (const f of filings) {
+    if (!force) {
+      const seen = await ctx.runQuery(internal.data.releaseSeen, { accession: f.accession });
+      if (seen?.processed) continue;
+    }
+
+    try {
+      const lookup = await findEarningsRelease(cik, f.accession);
+      if (lookup.kind === "transient") {
+        // Leave unprocessed so the next run retries. Marking it done here would
+        // permanently lose that quarter's adjusted EPS.
+        notes.push(`${f.accession}: ${lookup.reason}`);
+        continue;
+      }
+      if (lookup.kind === "none") {
+        notes.push(`${f.accession}: no release doc [${lookup.detail}]`);
+        await ctx.runMutation(internal.data.markRelease, {
+          ticker,
+          cik,
+          accession: f.accession,
+          filedAt: f.filedAt,
+          url: "",
+          processed: true, // genuinely no release document in this filing
+        });
+        continue;
+      }
+      const doc = lookup.doc;
+
+      const result = await extractFromRelease(doc, ticker);
+      if ("error" in result) {
+        notes.push(`${f.accession}: ${result.error}`);
+        continue; // transient (rate limit, key) — leave unprocessed to retry
+      }
+
+      const { data, rejected, model, sourceUrl } = result;
+      if (rejected.length > 0) notes.push(`${f.accession} rejected ${rejected.join(", ")}`);
+
+      if (data.adjEps !== null) {
+        const m = await ctx.runMutation(internal.data.storeAdjEps, {
+          ticker,
+          filedAt: f.filedAt,
+          adjEps: data.adjEps,
+          periodEndHint: data.periodEndDate ?? undefined,
+          sourceUrl,
+        });
+        if (m.matched) adjEpsCount++;
+        else notes.push(`${f.accession}: adjEps ${data.adjEps} matched no quarter`);
+      }
+
+      const hasGuide =
+        data.guidanceRevenueLow !== null ||
+        data.guidanceEpsLow !== null ||
+        data.guidanceRevenueHigh !== null;
+      if (hasGuide && data.guidancePeriodLabel) {
+        await ctx.runMutation(internal.data.storeGuidance, {
+          ticker,
+          issuedAt: Date.parse(f.filedAt),
+          periodLabel: data.guidancePeriodLabel,
+          revLow: data.guidanceRevenueLow ?? undefined,
+          revHigh: data.guidanceRevenueHigh ?? undefined,
+          epsLow: data.guidanceEpsLow ?? undefined,
+          epsHigh: data.guidanceEpsHigh ?? undefined,
+          sourceUrl,
+          extractedBy: model,
+        });
+        guidanceCount++;
+      }
+
+      await ctx.runMutation(internal.data.markRelease, {
+        ticker,
+        cik,
+        accession: f.accession,
+        filedAt: f.filedAt,
+        url: sourceUrl,
+        processed: true,
+      });
+      processed++;
+    } catch (e) {
+      notes.push(`${f.accession}: ${String(e)}`);
+    }
+    await sleep(350);
+  }
+
+  return { ticker, processed, adjEps: adjEpsCount, guidance: guidanceCount, notes };
+}
+
+export const extractReleases = action({
+  args: {
+    ticker: v.string(),
+    cik: v.string(),
+    limit: v.optional(v.number()),
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { ticker, cik, limit, force }) =>
+    doExtractReleases(ctx, ticker.toUpperCase(), cik, limit ?? 8, force ?? false),
+});
+
+/**
+ * Bounded per invocation. A full backfill across the watchlist is dozens of
+ * document fetches plus an LLM call each, which overruns the action time limit
+ * — it failed outright in production while succeeding on a smaller dev set.
+ * Processed filings are skipped on the next pass, so the daily cron converges
+ * over a few runs instead of failing as one long job.
+ */
+export const extractReleasesAll = internalAction({
+  args: { limit: v.optional(v.number()), maxTickers: v.optional(v.number()) },
+  handler: async (ctx, { limit, maxTickers }): Promise<{ processed: number; adjEps: number; covered: number }> => {
+    const runId = await ctx.runMutation(internal.data.startRun, { task: "extractReleases" });
+    const rows = await ctx.runQuery(internal.data.watchlistTickers, {});
+    const budget = maxTickers ?? 5;
+    const deadline = Date.now() + 7 * 60_000;
+
+    let processed = 0;
+    let adjEps = 0;
+    let covered = 0;
+    const failures: string[] = [];
+    for (const row of rows) {
+      if (covered >= budget || Date.now() > deadline) break;
+      try {
+        const r = await doExtractReleases(ctx, row.ticker, row.cik, limit ?? 8);
+        processed += r.processed;
+        adjEps += r.adjEps;
+        // A ticker whose filings are all done costs one cheap index lookup and
+        // must not consume the budget, or the sweep never reaches the tail of
+        // the watchlist.
+        if (r.processed > 0 || r.notes.length > 0) covered++;
+        if (r.notes.length) failures.push(`${row.ticker}: ${r.notes[0]}`);
+      } catch (e) {
+        covered++;
+        failures.push(`${row.ticker}: ${String(e)}`);
+      }
+    }
+    await ctx.runMutation(internal.data.finishRun, {
+      id: runId,
+      ok: failures.length === 0,
+      processed,
+      error: failures.length ? failures.join(" | ").slice(0, 1000) : undefined,
+    });
+    return { processed, adjEps, covered };
   },
 });
 

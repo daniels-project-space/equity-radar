@@ -80,6 +80,23 @@ export const get = query({
       .withIndex("by_ticker", (i) => i.eq("ticker", t))
       .unique();
 
+    // 8-K Item 2.02 filing dates are the real earnings dates — no calendar
+    // feed needed, and they line up with the price history exactly.
+    const releases = await ctx.db
+      .query("filings")
+      .withIndex("by_ticker", (i) => i.eq("ticker", t))
+      .collect();
+    const earningsDates = releases
+      .map((r) => r.filedAt)
+      .sort()
+      .slice(-24);
+
+    const guidance = await ctx.db
+      .query("guidance")
+      .withIndex("by_ticker", (i) => i.eq("ticker", t))
+      .collect();
+    guidance.sort((a, b) => b.issuedAt - a.issuedAt);
+
     return {
       ticker: t,
       onWatchlist: !!entry,
@@ -91,6 +108,8 @@ export const get = query({
       alerts,
       evaluations,
       peers: peers?.peers ?? [],
+      earningsDates,
+      guidance: guidance.slice(0, 4),
     };
   },
 });

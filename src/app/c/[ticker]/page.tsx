@@ -144,7 +144,12 @@ export default function CompanyPage() {
       {/* chart */}
       <div className="panel p-4">
         {bars && bars.length > 0 ? (
-          <PriceChart bars={bars} bands={bandList} />
+          <PriceChart
+            bars={bars}
+            bands={bandList}
+            fairValue={data.bands?.fairValue}
+            earningsDates={data.earningsDates}
+          />
         ) : (
           <p className="py-16 text-center text-[12px] text-[var(--muted)]">
             No price history yet — hit Refresh.
@@ -338,6 +343,73 @@ export default function CompanyPage() {
               </>
             )}
           </Panel>
+
+          {/* guidance */}
+          {m?.guidancePeriod && (
+            <Panel title="Management guidance">
+              <div className="space-y-1.5 text-[11px]">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[var(--muted)]">Period</span>
+                  <span>{m.guidancePeriod}</span>
+                </div>
+                {m.guidanceRevLow !== undefined && (
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[var(--muted)]">Revenue</span>
+                    <span className="tabular">
+                      {bigUsd(m.guidanceRevLow)}
+                      {m.guidanceRevHigh !== undefined && m.guidanceRevHigh !== m.guidanceRevLow
+                        ? `–${bigUsd(m.guidanceRevHigh)}`
+                        : ""}
+                    </span>
+                  </div>
+                )}
+                {m.guidanceEpsLow !== undefined && (
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[var(--muted)]">EPS</span>
+                    <span className="tabular">
+                      {usd(m.guidanceEpsLow)}
+                      {m.guidanceEpsHigh !== undefined && m.guidanceEpsHigh !== m.guidanceEpsLow
+                        ? `–${usd(m.guidanceEpsHigh)}`
+                        : ""}
+                    </span>
+                  </div>
+                )}
+                {m.guidedGrowth !== undefined && (
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[var(--muted)]">Implied growth</span>
+                    <span
+                      className="tabular"
+                      style={{ color: (m.guidanceDelta ?? 0) >= 0 ? "var(--good)" : "var(--bad)" }}
+                    >
+                      {signedPct(m.guidedGrowth)}
+                      {m.guidanceDelta !== undefined && (
+                        <span className="ml-1.5 text-[10px]">
+                          ({m.guidanceDelta >= 0 ? "accelerating" : "decelerating"})
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <p className="mt-2 text-[10px] leading-snug text-[var(--muted)]">
+                Extracted from the 8-K earnings release and checked against the source text.
+                Implied growth compares the guided midpoint with the same quarter a year earlier.
+                {m.guidanceSourceUrl && (
+                  <>
+                    {" "}
+                    <a
+                      href={m.guidanceSourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline hover:text-[var(--text)]"
+                    >
+                      source
+                    </a>
+                  </>
+                )}
+              </p>
+            </Panel>
+          )}
 
           {/* moat */}
           <Panel title="Moat">
