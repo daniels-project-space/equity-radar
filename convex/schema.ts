@@ -148,6 +148,8 @@ export default defineSchema({
     pToFcf: v.optional(v.number()),
     fwdEps: v.optional(v.number()),
     fwdPe: v.optional(v.number()),
+    fwdEpsBasis: v.optional(v.union(v.literal("consensus"), v.literal("modelled"))),
+    modelledNtmEps: v.optional(v.number()),
     isGaapLoss: v.optional(v.boolean()),
     quartersAvailable: v.number(),
     /** Period end of the newest quarter we have. Foreign private issuers file
@@ -189,7 +191,12 @@ export default defineSchema({
   buy_bands: defineTable({
     ticker: v.string(),
     date: v.string(),
-    basis: v.union(v.literal("fwdEps"), v.literal("ttmEps"), v.literal("evSales")),
+    basis: v.union(
+      v.literal("fwdEps"),
+      v.literal("modelledEps"),
+      v.literal("ttmEps"),
+      v.literal("evSales")
+    ),
     basisValue: v.number(),
     targetMultiple: v.number(),
     bands: v.array(

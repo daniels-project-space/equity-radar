@@ -35,32 +35,60 @@ by hand and nothing is recalled from a language model.
 
 ## Data sources
 
+**The app runs with zero API keys.** Every default source is keyless.
+
 | Source | Used for | Key |
 |---|---|---|
 | SEC `data.sec.gov` XBRL companyfacts | all fundamentals | none |
 | SEC `submissions` | SIC code, filing feed | none |
 | SEC `company_tickers_exchange.json` | universe | none |
-| Alpaca Market Data | daily bars (preferred) | `ALPACA_KEY_ID`, `ALPACA_SECRET` |
-| Yahoo chart endpoint | daily bars (keyless fallback) | none |
-| FMP | consensus forward EPS | `FMP_API_KEY` |
+| Yahoo chart v8 | daily bars (primary) | none |
+| Nasdaq chart | daily bars (fallback) | none |
+| Alpaca Market Data | daily bars (used only if keys exist) | optional |
+| FMP | consensus forward EPS (optional upgrade) | optional |
+
+Price sources are tried in order and the first one returning bars wins, so a
+single endpoint changing shape does not take the app down.
 
 ### Required environment
 
-`SEC_USER_AGENT` **must** contain a real contact email or SEC returns 403 on
-`www.sec.gov`. Set it to your own address:
+`SEC_USER_AGENT` is the one thing you must set. SEC returns 403 on
+`www.sec.gov` unless the User-Agent contains an email-shaped contact:
 
 ```bash
 npx convex env set SEC_USER_AGENT "EquityRadar/0.1 (you@example.com)"
 ```
 
-Optional but recommended — without `FMP_API_KEY` the buy bands fall back from
-consensus forward EPS to trailing EPS, which is a materially worse basis:
+### Optional upgrades
+
+There is **no free keyless source of consensus analyst estimates** — that data
+is proprietary, and Yahoo's quote endpoints that used to expose it now return
+401 behind a crumb. So buy zones fall back to a *modelled* NTM EPS derived from
+filed results (see below). Setting `FMP_API_KEY` swaps that for real consensus:
 
 ```bash
 npx convex env set FMP_API_KEY "..."
-npx convex env set ALPACA_KEY_ID "..."
+npx convex env set ALPACA_KEY_ID "..."     # supported price feed
 npx convex env set ALPACA_SECRET "..."
 ```
+
+### Valuation basis
+
+Buy zones are anchored to whichever of these is available, and the UI always
+says which one it used — they are not interchangeable:
+
+| Basis | Meaning |
+|---|---|
+| `fwdEps` | consensus forward EPS (needs `FMP_API_KEY`) |
+| `modelledEps` | trailing EPS grown by the damped median of the last four quarterly YoY rates, capped to [-30%, +60%] and damped by 0.6 |
+| `ttmEps` | trailing EPS only |
+| `evSales` | EV/Sales, for loss-making names |
+
+The modelled basis exists because trailing-only badly misprices fast growers.
+It reads *more expensive* than consensus for companies with large stock comp or
+amortization, because it is built on GAAP earnings while consensus is quoted on
+adjusted. Extracting adjusted EPS from 8-K EX-99.1 press releases is the fix,
+and is not built yet.
 
 ## Two parsing details that matter
 
@@ -100,9 +128,10 @@ npx convex run ingest:refreshTicker '{"ticker":"FN","cik":"0001408710"}'
 
 - Adjusted EPS and guidance live in 8-K EX-99.1 press releases, not XBRL. The
   schema has fields for them; the extractor is not built yet, so all EPS is GAAP.
-- Free consensus estimates are thin on small caps. Where forward EPS is missing
-  the UI says which basis the bands actually used.
+  This is why the modelled forward multiple reads high for AMD and similar names.
 - SEC restatements mean historical scores carry mild look-ahead bias. Fine for
   sanity checks, not for claiming a track record.
-- The Yahoo fallback price feed is unofficial and can change without notice.
-  Set Alpaca keys for a supported feed.
+- The keyless price feeds are unofficial and can change without notice. Two are
+  wired in sequence to reduce that risk; set Alpaca keys for a supported feed.
+- The Nasdaq fallback omits volume, so ADV degrades to zero when it is the
+  source that answered.

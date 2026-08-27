@@ -14,6 +14,7 @@ import {
   bps,
   num,
   isStale,
+  BASIS_LABEL,
   VERDICT_COLOR,
   ACTION_COLOR,
   scoreColor,
@@ -78,7 +79,7 @@ export default function CompanyPage() {
             )}
             {data.bands && (
               <span className="chip">
-                bands on {data.bands.basis === "fwdEps" ? "forward EPS" : data.bands.basis === "ttmEps" ? "TTM EPS" : "EV/Sales"} @ {data.bands.targetMultiple}x
+                bands on {BASIS_LABEL[data.bands.basis] ?? data.bands.basis} @ {data.bands.targetMultiple}x
               </span>
             )}
           </div>
@@ -172,7 +173,10 @@ export default function CompanyPage() {
               <Metric label="Net cash" value={bigUsd(m?.netCash)} good={(m?.netCash ?? 0) > 0} />
               <Metric label="Net debt / EBITDA" value={num(m?.netDebtToEbitda, 2)} />
               <Metric label="P/E (TTM)" value={mult(m?.peTtm)} />
-              <Metric label="P/E (forward)" value={mult(m?.fwdPe)} />
+              <Metric
+                label={m?.fwdEpsBasis === "modelled" ? "P/E (modelled fwd)" : "P/E (forward)"}
+                value={mult(m?.fwdPe)}
+              />
               <Metric label="EV / Sales" value={mult(m?.evToSales)} />
               <Metric label="P / FCF" value={mult(m?.pToFcf, 0)} />
               <Metric label="12m return" value={signedPct(p?.ret12m)} />
@@ -266,14 +270,17 @@ export default function CompanyPage() {
                 </table>
                 <p className="mt-2 text-[10px] leading-snug text-[var(--muted)]">
                   Bands are {data.bands?.targetMultiple}x{" "}
-                  {data.bands?.basis === "fwdEps"
-                    ? "consensus forward EPS"
-                    : data.bands?.basis === "ttmEps"
-                      ? "trailing EPS"
-                      : "EV/Sales"}
-                  , scaled. They move as estimates and the peer group move — this table is
-                  recomputed daily, not a fixed opinion.
+                  {BASIS_LABEL[data.bands?.basis ?? ""] ?? "—"}, scaled. They move with the peer
+                  group and with earnings — recomputed daily, not a fixed opinion.
                 </p>
+                {data.bands?.basis === "modelledEps" && (
+                  <p className="mt-1.5 text-[10px] leading-snug text-[var(--warn)]">
+                    Forward EPS here is <strong>modelled, not consensus</strong>: trailing EPS grown
+                    by the damped median of the last four quarterly YoY rates. No free keyless
+                    source publishes analyst estimates. Set <code>FMP_API_KEY</code> to switch this
+                    to real consensus.
+                  </p>
+                )}
               </>
             )}
           </Panel>

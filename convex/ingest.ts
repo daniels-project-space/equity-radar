@@ -22,6 +22,7 @@ export type RefreshResult = {
   quarters: number;
   bars: number;
   fwdEps?: number;
+  fwdEpsBasis?: "consensus" | "modelled";
   currentBand?: string;
   missingInputs: string[];
   alertsFired: string[];
@@ -122,9 +123,11 @@ async function doRefreshTicker(
 
   // ---- metrics ------------------------------------------------------
   const quarters = await ctx.runQuery(internal.data.quartersFor, { ticker: t });
-  const fwdEps = await fetchForwardEps(t);
-  const metrics = deriveMetrics(quarters, stats?.last, fwdEps);
-  await ctx.runMutation(internal.data.storeMetrics, { ticker: t, metrics: { ...metrics, fwdEps } });
+  // Undefined unless a provider key is configured; deriveMetrics falls back to
+  // its own modelled NTM figure so the app needs no API key at all.
+  const consensusEps = await fetchForwardEps(t);
+  const metrics = deriveMetrics(quarters, stats?.last, consensusEps);
+  await ctx.runMutation(internal.data.storeMetrics, { ticker: t, metrics });
   if (metrics.marketCap) {
     await ctx.runMutation(internal.data.setUniverseMeta, { ticker: t, marketCap: metrics.marketCap });
   }
@@ -182,7 +185,8 @@ async function doRefreshTicker(
   // ---- buy bands ----------------------------------------------------
   const bands = buildBands({
     price: stats?.last,
-    fwdEps,
+    fwdEps: metrics.fwdEps,
+    fwdEpsBasis: metrics.fwdEpsBasis,
     ttmEps: metrics.epsTtm,
     revenueTtm: metrics.revenueTtm,
     netCash: metrics.netCash,
@@ -211,7 +215,8 @@ async function doRefreshTicker(
     verdict: result.verdict,
     quarters: quarters.length,
     bars: storedBars.length,
-    fwdEps,
+    fwdEps: metrics.fwdEps,
+    fwdEpsBasis: metrics.fwdEpsBasis,
     currentBand: bands?.currentBand,
     missingInputs: result.missingInputs,
     alertsFired,

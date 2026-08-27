@@ -12,15 +12,30 @@
 
 export type Bar = { date: string; o: number; h: number; l: number; c: number; v: number };
 
+/**
+ * Tries each source in turn so one endpoint changing shape cannot take the
+ * whole app down. Alpaca is used only if keys happen to be configured; the
+ * two fallbacks are keyless, which is the supported default.
+ */
 export async function fetchDailyBars(ticker: string, lookbackDays = 1300): Promise<Bar[]> {
+  const sources: { name: string; run: () => Promise<Bar[]> }[] = [];
   if (process.env.ALPACA_KEY_ID && process.env.ALPACA_SECRET) {
+    sources.push({ name: "alpaca", run: () => fetchAlpaca(ticker, lookbackDays) });
+  }
+  sources.push({ name: "yahoo", run: () => fetchYahoo(ticker, lookbackDays) });
+  sources.push({ name: "nasdaq", run: () => fetchNasdaq(ticker, lookbackDays) });
+
+  const errors: string[] = [];
+  for (const source of sources) {
     try {
-      return await fetchAlpaca(ticker, lookbackDays);
-    } catch {
-      // a price feed outage must not block the whole evaluation
+      const bars = await source.run();
+      if (bars.length > 0) return bars;
+      errors.push(`${source.name}: empty`);
+    } catch (e) {
+      errors.push(`${source.name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  return fetchYahoo(ticker, lookbackDays);
+  throw new Error(`no price source returned bars for ${ticker} (${errors.join("; ")})`);
 }
 
 type YahooChart = {
@@ -63,6 +78,45 @@ async function fetchYahoo(ticker: string, lookbackDays: number): Promise<Bar[]> 
       l: q.low?.[i] ?? close,
       c: close,
       v: q.volume?.[i] ?? 0,
+    });
+  }
+  return bars;
+}
+
+type NasdaqChart = {
+  data?: { chart?: { z?: { close?: string; open?: string; high?: string; low?: string; dateTime?: string } }[] };
+};
+
+/** Keyless second opinion. Nasdaq serves strings with $ and commas in them. */
+async function fetchNasdaq(ticker: string, lookbackDays: number): Promise<Bar[]> {
+  const from = new Date(Date.now() - lookbackDays * 86_400_000).toISOString().slice(0, 10);
+  const to = new Date().toISOString().slice(0, 10);
+  const url =
+    `https://api.nasdaq.com/api/quote/${encodeURIComponent(ticker)}/chart` +
+    `?assetclass=stocks&fromdate=${from}&todate=${to}`;
+  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" } });
+  if (!res.ok) throw new Error(`nasdaq ${res.status}`);
+  const json = (await res.json()) as NasdaqChart;
+  const rows = json.data?.chart ?? [];
+  const clean = (s?: string) => {
+    const n = Number((s ?? "").replace(/[$,]/g, ""));
+    return Number.isFinite(n) ? n : undefined;
+  };
+
+  const bars: Bar[] = [];
+  for (const row of rows) {
+    const c = clean(row.z?.close);
+    const stamp = row.z?.dateTime;
+    if (c === undefined || !stamp) continue;
+    const parsed = new Date(stamp);
+    if (Number.isNaN(parsed.getTime())) continue;
+    bars.push({
+      date: parsed.toISOString().slice(0, 10),
+      o: clean(row.z?.open) ?? c,
+      h: clean(row.z?.high) ?? c,
+      l: clean(row.z?.low) ?? c,
+      c,
+      v: 0, // this endpoint omits volume; ADV degrades rather than breaks
     });
   }
   return bars;

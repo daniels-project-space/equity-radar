@@ -55,6 +55,14 @@ export const ACTION_COLOR: Record<string, string> = {
 export const isStale = (periodEnd?: string) =>
   !!periodEnd && Date.now() - Date.parse(periodEnd) > 150 * 86_400_000;
 
+/** What the buy zones are actually anchored to. Never blur these together. */
+export const BASIS_LABEL: Record<string, string> = {
+  fwdEps: "consensus forward EPS",
+  modelledEps: "modelled NTM EPS",
+  ttmEps: "trailing EPS",
+  evSales: "EV/Sales",
+};
+
 export const scoreColor = (n?: number) => {
   if (typeof n !== "number") return "#64748b";
   if (n >= 70) return "#34d399";

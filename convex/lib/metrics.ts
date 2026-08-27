@@ -41,7 +41,11 @@ export type DerivedMetrics = {
   peTtm?: number;
   evToSales?: number;
   pToFcf?: number;
+  fwdEps?: number;
   fwdPe?: number;
+  /** Where fwdEps came from — these are not interchangeable and the UI says which. */
+  fwdEpsBasis?: "consensus" | "modelled";
+  modelledNtmEps?: number;
   isGaapLoss?: boolean;
   quartersAvailable: number;
   latestPeriodEnd?: string;
@@ -62,15 +66,50 @@ const growth = (now?: number, prior?: number): number | undefined => {
   return now / prior - 1;
 };
 
+const median = (values: number[]): number | undefined => {
+  const xs = values.filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+  if (xs.length === 0) return undefined;
+  const mid = Math.floor(xs.length / 2);
+  return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
+};
+
+/**
+ * Next-twelve-month EPS modelled from filed results.
+ *
+ * Consensus estimates are proprietary — there is no free keyless source — but
+ * anchoring buy zones on trailing EPS alone badly misprices anything growing
+ * fast (AMD reads 121x trailing against roughly 30x on 2027 numbers). So we
+ * project instead, from data we already have and can show our working for.
+ *
+ * The median of the last four quarterly YoY EPS growth rates resists one-off
+ * quarters; it is then capped and damped toward the mean, because trailing
+ * growth persisting in full is the exception, not the rule. This is explicitly
+ * NOT a consensus figure and the UI labels it as modelled.
+ */
+function modelNtmEps(quarters: Quarter[], epsTtm?: number): number | undefined {
+  if (epsTtm === undefined || epsTtm <= 0) return undefined;
+  const yoys: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    const now = quarters[i]?.epsDiluted;
+    const prior = quarters[i + 4]?.epsDiluted;
+    if (now === undefined || prior === undefined || prior <= 0) continue;
+    yoys.push(now / prior - 1);
+  }
+  const blended = median(yoys);
+  if (blended === undefined) return undefined;
+  const capped = Math.max(-0.3, Math.min(0.6, blended));
+  return epsTtm * (1 + capped * 0.6);
+}
+
 /**
  * @param quarters most-recent-first, at least 4 for TTM, 8 for YoY.
  * @param price latest close
- * @param fwdEps consensus FY+1 EPS if available
+ * @param consensusEps consensus FY+1 EPS, only present if a provider key is set
  */
 export function deriveMetrics(
   quarters: Quarter[],
   price?: number,
-  fwdEps?: number
+  consensusEps?: number
 ): DerivedMetrics {
   const q = quarters.slice(0, 8);
   const cur = q.slice(0, 4);
@@ -129,6 +168,9 @@ export function deriveMetrics(
       ? marketCap + debt - cash
       : undefined;
 
+  const modelledNtmEps = modelNtmEps(q, epsTtm);
+  const fwdEps = consensusEps ?? modelledNtmEps;
+
   return {
     revenueTtm,
     revYoY,
@@ -150,7 +192,10 @@ export function deriveMetrics(
     peTtm: price !== undefined && epsTtm !== undefined && epsTtm > 0 ? price / epsTtm : undefined,
     evToSales: ratio(ev, revenueTtm),
     pToFcf: marketCap !== undefined && fcfTtm !== undefined && fcfTtm > 0 ? marketCap / fcfTtm : undefined,
+    fwdEps,
     fwdPe: price !== undefined && fwdEps !== undefined && fwdEps > 0 ? price / fwdEps : undefined,
+    fwdEpsBasis: fwdEps === undefined ? undefined : consensusEps !== undefined ? "consensus" : "modelled",
+    modelledNtmEps,
     isGaapLoss: netTtm !== undefined ? netTtm < 0 : undefined,
     quartersAvailable: q.length,
     latestPeriodEnd: latest?.periodEnd,

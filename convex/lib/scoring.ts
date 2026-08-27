@@ -281,7 +281,7 @@ export const DEFAULT_TARGET_PE = 26;
 export const DEFAULT_TARGET_EVS = 6;
 
 export type BandResult = {
-  basis: "fwdEps" | "ttmEps" | "evSales";
+  basis: "fwdEps" | "modelledEps" | "ttmEps" | "evSales";
   basisValue: number;
   targetMultiple: number;
   bands: Band[];
@@ -296,6 +296,8 @@ export type BandResult = {
 export function buildBands(args: {
   price?: number;
   fwdEps?: number;
+  /** Consensus and modelled forward EPS are not the same claim — keep them distinct. */
+  fwdEpsBasis?: "consensus" | "modelled";
   ttmEps?: number;
   revenueTtm?: number;
   netCash?: number;
@@ -307,6 +309,7 @@ export function buildBands(args: {
   const {
     price,
     fwdEps,
+    fwdEpsBasis,
     ttmEps,
     revenueTtm,
     netCash = 0,
@@ -332,8 +335,9 @@ export function buildBands(args: {
       priceLo: r2(eps * target * b.lo),
       priceHi: r2(eps * target * b.hi),
     }));
+    const usingForward = !!fwdEps && fwdEps > 0;
     return {
-      basis: fwdEps && fwdEps > 0 ? "fwdEps" : "ttmEps",
+      basis: usingForward ? (fwdEpsBasis === "modelled" ? "modelledEps" : "fwdEps") : "ttmEps",
       basisValue: eps,
       targetMultiple: r2(target),
       bands,
