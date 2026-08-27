@@ -251,7 +251,21 @@ function instantSeries(all: Fact[]): Map<string, number> {
 /** Flows can be unwound from YTD totals; averages and per-share figures cannot. */
 const NON_ADDITIVE: ReadonlySet<ConceptKey> = new Set(["epsDiluted", "sharesDiluted"]);
 
+/**
+ * Picks the best concept for a line item — by *recency*, not by list order.
+ *
+ * Companies migrate tags and leave the old series behind. NVIDIA, for example,
+ * still carries a `RevenueFromContractWithCustomerExcludingAssessedTax` series
+ * that stops in 2020 while current filings tag `Revenues`. Taking the first
+ * concept that has any data at all silently scores the company on six-year-old
+ * financials — which looks entirely plausible and is completely wrong. So every
+ * candidate is built and the one reaching furthest forward wins, with series
+ * size as the tie-break.
+ */
 function seriesFor(cf: CompanyFacts, key: ConceptKey, kind: "duration" | "instant"): Map<string, number> {
+  let best: Map<string, number> = new Map();
+  let bestEnd = "";
+
   for (const taxonomy of TAXONOMIES) {
     const node = cf.facts[taxonomy];
     if (!node) continue;
@@ -262,10 +276,16 @@ function seriesFor(cf: CompanyFacts, key: ConceptKey, kind: "duration" | "instan
       if (facts.length === 0) continue;
       const series =
         kind === "duration" ? quarterlySeries(facts, !NON_ADDITIVE.has(key)) : instantSeries(facts);
-      if (series.size > 0) return series;
+      if (series.size === 0) continue;
+
+      const latest = [...series.keys()].reduce((a, b) => (a > b ? a : b), "");
+      if (latest > bestEnd || (latest === bestEnd && series.size > best.size)) {
+        best = series;
+        bestEnd = latest;
+      }
     }
   }
-  return new Map();
+  return best;
 }
 
 /**
