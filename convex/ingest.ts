@@ -396,7 +396,9 @@ export const pollFilings = internalAction({
     let fresh = 0;
     for (const row of rows) {
       try {
-        const filings = await fetchRecentFilings(row.cik, ["10-K", "10-Q"]);
+        // Foreign private issuers report on 20-F/6-K, not 10-K/10-Q. Omitting
+        // them means those names never re-evaluate on results.
+        const filings = await fetchRecentFilings(row.cik, ["10-K", "10-Q", "20-F", "6-K", "40-F"]);
         const newest = filings[0];
         if (newest && (Date.now() - Date.parse(newest.filedAt)) / 86_400_000 <= 2) {
           fresh++;

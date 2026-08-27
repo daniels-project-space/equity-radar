@@ -4,7 +4,17 @@ import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { TickerSearch } from "@/components/ticker-search";
-import { usd, pct, signedPct, mult, num, VERDICT_COLOR, ACTION_COLOR, scoreColor } from "@/lib/format";
+import {
+  usd,
+  pct,
+  signedPct,
+  mult,
+  num,
+  isStale,
+  VERDICT_COLOR,
+  ACTION_COLOR,
+  scoreColor,
+} from "@/lib/format";
 
 export default function Dashboard() {
   const rows = useQuery(api.watchlist.list);
@@ -45,6 +55,7 @@ export default function Dashboard() {
                   <th className="px-3 py-2.5 text-right font-medium">GM</th>
                   <th className="px-3 py-2.5 text-right font-medium">P/E</th>
                   <th className="px-3 py-2.5 text-right font-medium">Off high</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Filed thru</th>
                   <th className="px-3 py-2.5 text-right font-medium">Verdict</th>
                 </tr>
               </thead>
@@ -101,6 +112,17 @@ export default function Dashboard() {
                       <td className="px-3 py-2.5 text-right">{pct(m?.grossMarginPct, 0)}</td>
                       <td className="px-3 py-2.5 text-right">{mult(m?.fwdPe ?? m?.peTtm)}</td>
                       <td className="px-3 py-2.5 text-right">{pct(p?.drawdownFromHigh, 0)}</td>
+                      <td
+                        className="px-3 py-2.5 text-right"
+                        style={{ color: isStale(m?.latestPeriodEnd) ? "var(--warn)" : "var(--muted)" }}
+                        title={
+                          isStale(m?.latestPeriodEnd)
+                            ? "Fundamentals lag — this filer's newest tagged period is old"
+                            : undefined
+                        }
+                      >
+                        {m?.latestPeriodEnd ?? "—"}
+                      </td>
                       <td className="px-3 py-2.5 text-right">
                         <span
                           className="chip"

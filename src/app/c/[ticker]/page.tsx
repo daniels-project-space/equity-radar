@@ -13,6 +13,7 @@ import {
   mult,
   bps,
   num,
+  isStale,
   VERDICT_COLOR,
   ACTION_COLOR,
   scoreColor,
@@ -62,6 +63,19 @@ export default function CompanyPage() {
             {data.universe?.exchange && <span className="chip">{data.universe.exchange}</span>}
             {data.universe?.industry && <span className="chip">{data.universe.industry}</span>}
             <span className="chip">Mkt cap {bigUsd(m?.marketCap)}</span>
+            {m?.latestPeriodEnd && (
+              <span
+                className="chip"
+                style={
+                  isStale(m.latestPeriodEnd)
+                    ? { color: "var(--warn)", borderColor: "var(--warn)" }
+                    : undefined
+                }
+              >
+                filed through {m.latestPeriodEnd}
+                {isStale(m.latestPeriodEnd) && " · lagging"}
+              </span>
+            )}
             {data.bands && (
               <span className="chip">
                 bands on {data.bands.basis === "fwdEps" ? "forward EPS" : data.bands.basis === "ttmEps" ? "TTM EPS" : "EV/Sales"} @ {data.bands.targetMultiple}x

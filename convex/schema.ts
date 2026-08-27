@@ -150,6 +150,10 @@ export default defineSchema({
     fwdPe: v.optional(v.number()),
     isGaapLoss: v.optional(v.boolean()),
     quartersAvailable: v.number(),
+    /** Period end of the newest quarter we have. Foreign private issuers file
+     *  20-F/6-K and can lag domestic filers by two or three quarters, so this
+     *  has to be visible rather than implied. */
+    latestPeriodEnd: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_ticker", ["ticker"]),
 

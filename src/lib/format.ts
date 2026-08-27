@@ -46,6 +46,15 @@ export const ACTION_COLOR: Record<string, string> = {
   TRIM: "#f87171",
 };
 
+/**
+ * A domestic filer is at most ~135 days behind (quarter end + filing window).
+ * Beyond that the numbers are a different vintage from the rest of the table,
+ * which matters more than it looks when comparing growth rates side by side —
+ * foreign private issuers on 20-F/6-K routinely lag by two or three quarters.
+ */
+export const isStale = (periodEnd?: string) =>
+  !!periodEnd && Date.now() - Date.parse(periodEnd) > 150 * 86_400_000;
+
 export const scoreColor = (n?: number) => {
   if (typeof n !== "number") return "#64748b";
   if (n >= 70) return "#34d399";

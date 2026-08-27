@@ -44,6 +44,7 @@ export type DerivedMetrics = {
   fwdPe?: number;
   isGaapLoss?: boolean;
   quartersAvailable: number;
+  latestPeriodEnd?: string;
 };
 
 const sum = (xs: (number | undefined)[]): number | undefined => {
@@ -152,6 +153,7 @@ export function deriveMetrics(
     fwdPe: price !== undefined && fwdEps !== undefined && fwdEps > 0 ? price / fwdEps : undefined,
     isGaapLoss: netTtm !== undefined ? netTtm < 0 : undefined,
     quartersAvailable: q.length,
+    latestPeriodEnd: latest?.periodEnd,
   };
 }
 

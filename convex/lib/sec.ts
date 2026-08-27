@@ -77,34 +77,92 @@ type CompanyFacts = {
  * first match that yields data wins. Order matters — most specific first.
  */
 const CONCEPTS = {
-  revenue: [
-    "RevenueFromContractWithCustomerExcludingAssessedTax",
-    "RevenueFromContractWithCustomerIncludingAssessedTax",
-    "Revenues",
-    "SalesRevenueNet",
-    "SalesRevenueGoodsNet",
-    "RevenuesNetOfInterestExpense",
-  ],
-  costOfRevenue: ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold", "CostOfSales"],
-  grossProfit: ["GrossProfit"],
-  opIncome: ["OperatingIncomeLoss"],
-  netIncome: ["NetIncomeLoss", "ProfitLoss"],
-  epsDiluted: ["EarningsPerShareDiluted", "EarningsPerShareBasicAndDiluted"],
-  sharesDiluted: [
-    "WeightedAverageNumberOfDilutedSharesOutstanding",
-    "WeightedAverageNumberOfSharesOutstandingBasicAndDiluted",
-    "WeightedAverageNumberOfSharesOutstandingBasic",
-  ],
-  rnd: ["ResearchAndDevelopmentExpense"],
-  ocf: ["NetCashProvidedByUsedInOperatingActivities", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"],
-  capex: ["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"],
-  cash: ["CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"],
-  shortTermInvestments: ["ShortTermInvestments", "MarketableSecuritiesCurrent", "AvailableForSaleSecuritiesDebtSecuritiesCurrent"],
-  longTermDebt: ["LongTermDebtNoncurrent", "LongTermDebt"],
-  currentDebt: ["LongTermDebtCurrent", "DebtCurrent", "ShortTermBorrowings"],
+  revenue: {
+    "us-gaap": [
+      "RevenueFromContractWithCustomerExcludingAssessedTax",
+      "RevenueFromContractWithCustomerIncludingAssessedTax",
+      "Revenues",
+      "SalesRevenueNet",
+      "SalesRevenueGoodsNet",
+      "RevenuesNetOfInterestExpense",
+    ],
+    "ifrs-full": ["RevenueFromContractsWithCustomers", "Revenue"],
+  },
+  costOfRevenue: {
+    "us-gaap": ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold", "CostOfSales"],
+    "ifrs-full": ["CostOfSales"],
+  },
+  grossProfit: { "us-gaap": ["GrossProfit"], "ifrs-full": ["GrossProfit"] },
+  opIncome: {
+    "us-gaap": ["OperatingIncomeLoss"],
+    "ifrs-full": ["ProfitLossFromOperatingActivities"],
+  },
+  netIncome: {
+    "us-gaap": ["NetIncomeLoss", "ProfitLoss"],
+    "ifrs-full": ["ProfitLoss", "ProfitLossAttributableToOwnersOfParent"],
+  },
+  epsDiluted: {
+    "us-gaap": ["EarningsPerShareDiluted", "EarningsPerShareBasicAndDiluted"],
+    "ifrs-full": ["DilutedEarningsLossPerShare", "BasicAndDilutedEarningsLossPerShare"],
+  },
+  sharesDiluted: {
+    "us-gaap": [
+      "WeightedAverageNumberOfDilutedSharesOutstanding",
+      "WeightedAverageNumberOfSharesOutstandingBasicAndDiluted",
+      "WeightedAverageNumberOfSharesOutstandingBasic",
+    ],
+    "ifrs-full": [
+      "AdjustedWeightedAverageShares",
+      "WeightedAverageShares",
+      "WeightedAverageNumberOfOrdinarySharesOutstanding",
+    ],
+  },
+  rnd: {
+    "us-gaap": ["ResearchAndDevelopmentExpense"],
+    "ifrs-full": ["ResearchAndDevelopmentExpense"],
+  },
+  ocf: {
+    "us-gaap": [
+      "NetCashProvidedByUsedInOperatingActivities",
+      "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+    ],
+    "ifrs-full": ["CashFlowsFromUsedInOperatingActivities"],
+  },
+  capex: {
+    "us-gaap": ["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"],
+    "ifrs-full": ["PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"],
+  },
+  cash: {
+    "us-gaap": [
+      "CashAndCashEquivalentsAtCarryingValue",
+      "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+    ],
+    "ifrs-full": ["CashAndCashEquivalents"],
+  },
+  shortTermInvestments: {
+    "us-gaap": [
+      "ShortTermInvestments",
+      "MarketableSecuritiesCurrent",
+      "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
+    ],
+    "ifrs-full": ["ShorttermInvestmentsClassifiedAsCashEquivalents", "OtherShorttermInvestments"],
+  },
+  longTermDebt: {
+    "us-gaap": ["LongTermDebtNoncurrent", "LongTermDebt"],
+    // Most specific first so a total "Borrowings" tag is only used as a last
+    // resort — pairing it with the current portion would double-count.
+    "ifrs-full": ["NoncurrentPortionOfNoncurrentBorrowings", "LongtermBorrowings", "Borrowings"],
+  },
+  currentDebt: {
+    "us-gaap": ["LongTermDebtCurrent", "DebtCurrent", "ShortTermBorrowings"],
+    "ifrs-full": ["CurrentPortionOfLongtermBorrowings", "ShorttermBorrowings"],
+  },
 } as const;
 
 type ConceptKey = keyof typeof CONCEPTS;
+
+/** A US listing does not imply US GAAP — GlobalFoundries files IFRS, for one. */
+const TAXONOMIES = ["us-gaap", "ifrs-full"] as const;
 
 const days = (a: string, b: string) =>
   Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
@@ -194,17 +252,30 @@ function instantSeries(all: Fact[]): Map<string, number> {
 const NON_ADDITIVE: ReadonlySet<ConceptKey> = new Set(["epsDiluted", "sharesDiluted"]);
 
 function seriesFor(cf: CompanyFacts, key: ConceptKey, kind: "duration" | "instant"): Map<string, number> {
-  const gaap = cf.facts["us-gaap"] ?? {};
-  for (const concept of CONCEPTS[key]) {
-    const node = gaap[concept];
+  for (const taxonomy of TAXONOMIES) {
+    const node = cf.facts[taxonomy];
     if (!node) continue;
-    const facts = pickUnit(node.units);
-    if (facts.length === 0) continue;
-    const series =
-      kind === "duration" ? quarterlySeries(facts, !NON_ADDITIVE.has(key)) : instantSeries(facts);
-    if (series.size > 0) return series;
+    for (const concept of CONCEPTS[key][taxonomy] as readonly string[]) {
+      const entry = node[concept];
+      if (!entry) continue;
+      const facts = pickUnit(entry.units);
+      if (facts.length === 0) continue;
+      const series =
+        kind === "duration" ? quarterlySeries(facts, !NON_ADDITIVE.has(key)) : instantSeries(facts);
+      if (series.size > 0) return series;
+    }
   }
   return new Map();
+}
+
+/**
+ * Cover-page share count. Not a weighted average, so it is only a fallback for
+ * market cap when the filer never tags one — which IFRS filers routinely don't.
+ */
+function deiSharesOutstanding(cf: CompanyFacts): Map<string, number> {
+  const entry = cf.facts["dei"]?.["EntityCommonStockSharesOutstanding"];
+  if (!entry) return new Map();
+  return instantSeries(pickUnit(entry.units));
 }
 
 export type SecQuarter = {
@@ -246,6 +317,7 @@ export async function fetchQuarters(cik: string, limit = 12): Promise<{ name: st
     sti: seriesFor(cf, "shortTermInvestments", "instant"),
     ltd: seriesFor(cf, "longTermDebt", "instant"),
     cd: seriesFor(cf, "currentDebt", "instant"),
+    deiShares: deiSharesOutstanding(cf),
   };
 
   const periodEnds = [...dur.revenue.keys()].sort((a, b) => b.localeCompare(a)).slice(0, limit);
@@ -280,7 +352,8 @@ export async function fetchQuarters(cik: string, limit = 12): Promise<{ name: st
     // so carry the last reported count forward. It moves by fractions of a
     // percent quarter to quarter, which is well inside the tolerance of every
     // ratio built on it.
-    const sharesDiluted = dur.sharesDiluted.get(end) ?? asOf(dur.sharesDiluted, end);
+    const sharesDiluted =
+      dur.sharesDiluted.get(end) ?? asOf(dur.sharesDiluted, end) ?? asOf(inst.deiShares, end);
 
     // Same reason: derive the quarter's EPS from figures we do have rather
     // than subtracting per-share amounts, which is not a valid operation.

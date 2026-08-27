@@ -15,6 +15,9 @@ export type Band = {
 
 type Bar = { date: string; o: number; h: number; l: number; c: number; v: number };
 
+/** Height lightweight-charts gives the time axis at this font size. */
+const TIME_AXIS_H = 32;
+
 const RANGES = [
   { label: "3M", days: 63 },
   { label: "1Y", days: 252 },
@@ -34,6 +37,7 @@ export function PriceChart({ bars, bands }: { bars: Bar[]; bands: Band[] }) {
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const [rangeIdx, setRangeIdx] = useState(1);
   const [rects, setRects] = useState<{ band: Band; top: number; height: number }[]>([]);
+  const [paneHeight, setPaneHeight] = useState(0);
   const [showBands, setShowBands] = useState(true);
 
   useEffect(() => {
@@ -92,20 +96,28 @@ export function PriceChart({ bars, bands }: { bars: Bar[]; bands: Band[] }) {
 
   function recomputeBands() {
     const series = seriesRef.current;
+    const chart = chartRef.current;
     const el = wrapRef.current;
-    if (!series || !el || bands.length === 0) {
+    if (!series || !chart || !el || bands.length === 0) {
       setRects([]);
       return;
     }
-    const height = el.clientHeight;
+    // priceToCoordinate is relative to the price pane, which sits above the
+    // time axis. Using the full container height lets bands spill over the
+    // dates and the attribution logo. timeScale().height() reports 0 until
+    // layout settles, so reserve the axis explicitly instead.
+    const pane = Math.max(0, el.clientHeight - TIME_AXIS_H);
+    setPaneHeight(pane);
+    void chart;
+
     const next: { band: Band; top: number; height: number }[] = [];
     for (const band of bands) {
       const yHi = series.priceToCoordinate(band.priceHi);
       const yLo = series.priceToCoordinate(band.priceLo);
       if (yHi === null && yLo === null) continue;
-      // A band can extend past the visible price range — clamp to the plot.
+      // A band can extend past the visible price range — clamp to the pane.
       const top = Math.max(0, yHi ?? 0);
-      const bottom = Math.min(height, yLo ?? height);
+      const bottom = Math.min(pane, yLo ?? pane);
       if (bottom - top < 1) continue;
       next.push({ band, top, height: bottom - top });
     }
@@ -157,7 +169,10 @@ export function PriceChart({ bars, bands }: { bars: Bar[]; bands: Band[] }) {
       <div className="relative">
         <div ref={wrapRef} className="relative w-full" style={{ height: 420 }} />
         {showBands && (
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div
+            className="pointer-events-none absolute left-0 right-0 top-0 overflow-hidden"
+            style={{ height: paneHeight || undefined }}
+          >
             {rects.map(({ band, top, height }) => {
               const color = ACTION_COLOR[band.action] ?? "#64748b";
               return (
@@ -171,12 +186,16 @@ export function PriceChart({ bars, bands }: { bars: Bar[]; bands: Band[] }) {
                     borderTop: `1px dashed ${color}55`,
                   }}
                 >
-                  <span
-                    className="absolute left-1.5 top-0.5 text-[10px] font-medium tracking-wide"
-                    style={{ color, opacity: 0.85 }}
-                  >
-                    {band.label} · {band.multipleLo}–{band.multipleHi}x
-                  </span>
+                  {/* A sliver of a band has no room for a label. Labels sit on
+                      the right so they clear the chart's bottom-left mark. */}
+                  {height >= 16 && (
+                    <span
+                      className="absolute right-1.5 top-0.5 text-[10px] font-medium tracking-wide"
+                      style={{ color, opacity: 0.85 }}
+                    >
+                      {band.label} · {band.multipleLo}–{band.multipleHi}x
+                    </span>
+                  )}
                 </div>
               );
             })}
