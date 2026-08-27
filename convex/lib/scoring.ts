@@ -39,6 +39,10 @@ export type ScoreInputs = {
   // peer context
   peerMedianFwdPe?: number;
   peerMedianEvToSales?: number;
+  /** Discount/premium to blended fair value, e.g. 0.25 = 25% below. */
+  upsideToFairValue?: number;
+  /** 0..100 moat level from the pillar assessment. */
+  moatScore?: number;
 };
 
 export type Bucket = {
@@ -107,7 +111,11 @@ function growthBucket(i: ScoreInputs): Bucket {
 }
 
 function qualityBucket(i: ScoreInputs): Bucket {
+  // The pillar-based moat level already blends margin, capital efficiency,
+  // durability and alignment — and unlike raw margins it is archetype-aware,
+  // so it carries the most weight when available.
   return weigh([
+    { key: "moat", raw: i.moatScore ?? null, norm: i.moatScore ?? null, weight: 0.4 },
     { key: "grossMargin", raw: i.grossMarginPct ?? null, norm: norm(i.grossMarginPct, 0.1, 0.7), weight: 0.25 },
     {
       key: "grossMarginTrend",
@@ -135,13 +143,21 @@ function valuationBucket(i: ScoreInputs): Bucket {
   const growthPct = i.revYoY !== undefined ? i.revYoY * 100 : undefined;
   const peg = pe && growthPct && growthPct > 0 ? pe / growthPct : undefined;
 
+  // Discount to blended fair value dominates when it exists: it is the only
+  // valuation input that is correct for every archetype. Multiples stay in as
+  // corroboration, but they cannot value an asset-holding company.
   return weigh([
+    {
+      key: "discountToFairValue",
+      raw: i.upsideToFairValue ?? null,
+      norm: norm(i.upsideToFairValue, -0.5, 0.8),
+      weight: 0.5,
+    },
     // inverted ranges: 1.8x the peer multiple scores 0, 0.5x scores 100
-    { key: "peVsPeers", raw: relPe ?? null, norm: norm(relPe, 1.8, 0.5), weight: 0.3 },
-    { key: "evsVsPeers", raw: relEvs ?? null, norm: norm(relEvs, 1.8, 0.5), weight: 0.2 },
-    { key: "peAbsolute", raw: pe ?? null, norm: norm(pe, 55, 12), weight: 0.2 },
-    { key: "evsAbsolute", raw: i.evToSales ?? null, norm: norm(i.evToSales, 20, 1.5), weight: 0.1 },
-    { key: "peg", raw: peg ?? null, norm: norm(peg, 3.0, 0.4), weight: 0.2 },
+    { key: "peVsPeers", raw: relPe ?? null, norm: norm(relPe, 1.8, 0.5), weight: 0.15 },
+    { key: "evsVsPeers", raw: relEvs ?? null, norm: norm(relEvs, 1.8, 0.5), weight: 0.1 },
+    { key: "peAbsolute", raw: pe ?? null, norm: norm(pe, 55, 12), weight: 0.1 },
+    { key: "peg", raw: peg ?? null, norm: norm(peg, 3.0, 0.4), weight: 0.15 },
   ]);
 }
 

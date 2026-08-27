@@ -8,7 +8,9 @@ import { internal } from "./_generated/api";
 import { fetchUniverse, fetchQuarters, fetchProfile, fetchRecentFilings } from "./lib/sec";
 import { fetchDailyBars, fetchForwardEps } from "./lib/prices";
 import { deriveMetrics, derivePriceStats } from "./lib/metrics";
-import { score as computeScore, buildBands, median } from "./lib/scoring";
+import { score as computeScore } from "./lib/scoring";
+import { valuate, median } from "./lib/valuation";
+import { assessMoat } from "./lib/moat";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fmt = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "n/a");
@@ -24,6 +26,12 @@ export type RefreshResult = {
   fwdEps?: number;
   fwdEpsBasis?: "consensus" | "modelled";
   currentBand?: string;
+  archetype?: string;
+  fairValue?: number;
+  upside?: number;
+  confidence?: string;
+  moatScore?: number;
+  moatDirection?: number;
   missingInputs: string[];
   alertsFired: string[];
   notes: string[];
@@ -126,8 +134,9 @@ async function doRefreshTicker(
   // Undefined unless a provider key is configured; deriveMetrics falls back to
   // its own modelled NTM figure so the app needs no API key at all.
   const consensusEps = await fetchForwardEps(t);
+  // Written once, after valuation and moat have been computed, so the row is
+  // never briefly missing its archetype-dependent fields.
   const metrics = deriveMetrics(quarters, stats?.last, consensusEps);
-  await ctx.runMutation(internal.data.storeMetrics, { ticker: t, metrics });
   if (metrics.marketCap) {
     await ctx.runMutation(internal.data.setUniverseMeta, { ticker: t, marketCap: metrics.marketCap });
   }
@@ -172,14 +181,9 @@ async function doRefreshTicker(
     }
   }
 
-  await ctx.runMutation(internal.data.storeMetrics, {
-    ticker: t,
-    metrics: { ...metrics, peerRet3m, peerRevYoY, peerCount },
-  });
-
-  // ---- score --------------------------------------------------------
+  // ---- score (after valuation, which it depends on) ------------------
   const prior = await ctx.runQuery(internal.data.priorScore, { ticker: t });
-  const result = computeScore({
+  const scoreInputs = {
     revYoY: metrics.revYoY,
     revAccel: metrics.revAccel,
     epsYoY: metrics.epsYoY,
@@ -200,27 +204,84 @@ async function doRefreshTicker(
     drawdownFromHigh: stats?.drawdownFromHigh,
     peerMedianFwdPe,
     peerMedianEvToSales,
-  });
-  await ctx.runMutation(internal.data.storeScore, { ticker: t, score: result });
+  };
 
-  // ---- buy bands ----------------------------------------------------
+  // ---- valuation ----------------------------------------------------
   // Per-ticker preset wins over the global one; "fixed" pins the anchor
-  // multiple instead of tracking the peer median.
+  // instead of tracking the peer median. What the anchor *means* depends on
+  // the archetype the valuation picks.
   const bandSettings = await ctx.runQuery(internal.settings.effectiveBands, { ticker: t });
-  const bands = buildBands({
+  const latestQ = quarters[0];
+  const valuation = valuate({
     price: stats?.last,
+    sicCode: universeRow?.sicCode,
+    sharesDiluted: latestQ?.sharesDiluted,
+    epsTtm: metrics.epsTtm,
     fwdEps: metrics.fwdEps,
-    fwdEpsBasis: metrics.fwdEpsBasis,
-    ttmEps: metrics.epsTtm,
     revenueTtm: metrics.revenueTtm,
+    opIncomeTtm: metrics.opMarginPct !== undefined && metrics.revenueTtm !== undefined
+      ? metrics.opMarginPct * metrics.revenueTtm
+      : undefined,
+    fcfTtm: metrics.fcfTtm,
     netCash: metrics.netCash,
-    sharesDiluted: quarters[0]?.sharesDiluted,
+    totalAssets: latestQ?.totalAssets,
+    totalLiabilities: latestQ?.totalLiabilities,
+    equity: latestQ?.equity,
+    cryptoFairValue: latestQ?.cryptoFairValue,
+    longTermInvestments: latestQ?.longTermInvestments,
     peerMedianFwdPe,
     peerMedianEvToSales,
-    targetMultipleOverride:
-      bandSettings.mode === "fixed" ? bandSettings.fixedMultiple : undefined,
+    revGrowth: metrics.revYoY,
+    grossMarginPct: metrics.grossMarginPct,
+    anchorOverride: bandSettings.mode === "fixed" ? bandSettings.fixedMultiple : undefined,
   });
-  if (bands) await ctx.runMutation(internal.data.storeBands, { ticker: t, bands });
+  if (valuation) await ctx.runMutation(internal.data.storeBands, { ticker: t, bands: valuation });
+  else notes.push("valuation not computable — no share count");
+
+  // ---- moat ---------------------------------------------------------
+  const moat = assessMoat({
+    archetype: valuation?.archetype ?? "earnings",
+    quarters,
+    grossMarginPct: metrics.grossMarginPct,
+    grossMarginDeltaYoY: metrics.grossMarginDeltaYoY,
+    opMarginPct: metrics.opMarginPct,
+    fcfMarginPct: metrics.fcfMarginPct,
+    fcfTtm: metrics.fcfTtm,
+    netIncomeTtm:
+      metrics.netMarginPct !== undefined && metrics.revenueTtm !== undefined
+        ? metrics.netMarginPct * metrics.revenueTtm
+        : undefined,
+    rndIntensityPct: metrics.rndIntensityPct,
+    sharesYoY: metrics.sharesYoY,
+    netDebtToEbitda: metrics.netDebtToEbitda,
+    netCash: metrics.netCash,
+    revYoY: metrics.revYoY,
+  });
+
+  await ctx.runMutation(internal.data.storeMetrics, {
+    ticker: t,
+    metrics: {
+      ...metrics,
+      peerRet3m,
+      peerRevYoY,
+      peerCount,
+      archetype: valuation?.archetype,
+      moatScore: moat.score,
+      moatTrend: moat.direction,
+      moatSummary: moat.summary,
+      moatPillars: moat.pillars,
+    },
+  });
+
+  // Discount to blended fair value is the archetype-correct valuation signal —
+  // it is the only one that means anything for a company whose worth is an
+  // asset base rather than an earnings stream.
+  const result = computeScore({
+    ...scoreInputs,
+    upsideToFairValue: valuation?.upside === undefined ? undefined : valuation.upside / 100,
+    moatScore: moat.score,
+  });
+  await ctx.runMutation(internal.data.storeScore, { ticker: t, score: result });
 
   // ---- evaluation + alerts ------------------------------------------
   await ctx.runMutation(internal.data.storeEvaluation, {
@@ -237,7 +298,8 @@ async function doRefreshTicker(
     { ...metrics, peerRet3m, peerRevYoY, peerCount },
     stats,
     result,
-    bands,
+    valuation,
+    moat,
     prior
   );
 
@@ -250,7 +312,13 @@ async function doRefreshTicker(
     bars: storedBars.length,
     fwdEps: metrics.fwdEps,
     fwdEpsBasis: metrics.fwdEpsBasis,
-    currentBand: bands?.currentBand,
+    currentBand: valuation?.currentBand,
+    archetype: valuation?.archetype,
+    fairValue: valuation?.fairValue,
+    upside: valuation?.upside,
+    confidence: valuation?.confidence,
+    moatScore: moat.score,
+    moatDirection: moat.direction,
     missingInputs: result.missingInputs,
     alertsFired,
     notes,
@@ -289,7 +357,8 @@ async function evaluateAlerts(
   },
   stats: ReturnType<typeof derivePriceStats>,
   s: ReturnType<typeof computeScore>,
-  bands: ReturnType<typeof buildBands>,
+  valuation: ReturnType<typeof valuate>,
+  moat: ReturnType<typeof assessMoat>,
   prior: { verdict: string; asymmetry: number; composite: number } | null
 ): Promise<string[]> {
   const fired: string[] = [];
@@ -313,14 +382,15 @@ async function evaluateAlerts(
     if (r.fired) fired.push(type);
   };
 
-  const band = bands?.bands.find((b) => b.label === bands.currentBand);
+  const band = valuation?.bands.find((b) => b.label === valuation.currentBand);
   if (band && (band.action === "BUY" || band.action === "BUY_AGGRESSIVE")) {
     await fire(
       "BUY_ZONE_ENTERED",
       "high",
       `${ticker} in "${band.label}" zone`,
-      `Price ${fmt(stats?.last)} sits in ${fmt(band.priceLo)}–${fmt(band.priceHi)} ` +
-        `(${band.multipleLo}x–${band.multipleHi}x on ${bands?.basis}).`,
+      `Price ${fmt(stats?.last)} against a ${fmt(valuation?.fairValue)} fair value ` +
+        `(${valuation?.upside}% upside, ${valuation?.confidence} confidence, ` +
+        `${Math.round((valuation?.marginOfSafety ?? 0) * 100)}% margin of safety).`,
       14,
       band
     );
@@ -389,25 +459,25 @@ async function evaluateAlerts(
 
   // Moat direction — the thing that decides whether a thesis survives years,
   // not quarters. Fires on a clear move, not on noise.
-  if (m.moatTrend !== undefined && m.moatTrend <= -25) {
-    const worst = (m.moatDrivers ?? [])
-      .filter((d) => (d.label === "Share count" ? d.delta > 0 : d.delta < 0))
-      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))[0];
+  const weakest = moat.pillars
+    .filter((p) => p.level !== undefined)
+    .sort((a, b) => (a.level as number) - (b.level as number))[0];
+
+  if (moat.direction !== undefined && moat.direction <= -25) {
     await fire(
       "MOAT_WEAKENING",
       "high",
-      `${ticker}: moat trending down`,
-      `Moat direction ${m.moatTrend}/100` +
-        (worst ? ` — led by ${worst.label.toLowerCase()} ${worst.delta > 0 ? "+" : ""}${worst.delta}${worst.unit}.` : "."),
+      `${ticker}: moat narrowing`,
+      `${moat.summary} Weakest pillar — ${weakest?.label.toLowerCase()}: ${weakest?.evidence}.`,
       45
     );
   }
-  if (m.moatTrend !== undefined && m.moatTrend >= 35) {
+  if (moat.direction !== undefined && moat.direction >= 35) {
     await fire(
       "MOAT_STRENGTHENING",
       "medium",
-      `${ticker}: moat trending up`,
-      `Moat direction +${m.moatTrend}/100 — margins and cash conversion improving year over year.`,
+      `${ticker}: moat widening`,
+      moat.summary,
       45
     );
   }
@@ -439,14 +509,15 @@ async function evaluateAlerts(
 
   // Explicit exit prompt, distinct from "expensive": the price has left the
   // top of the band table entirely.
-  const topBand = bands?.bands[bands.bands.length - 1];
+  const topBand = valuation?.bands[valuation.bands.length - 1];
   if (topBand && stats?.last !== undefined && stats.last > topBand.priceHi) {
     await fire(
       "OVERVALUED_EXIT",
       "high",
-      `${ticker}: above the band table`,
-      `Price ${fmt(stats.last)} is above ${fmt(topBand.priceHi)}, the top of the ` +
-        `${bands?.targetMultiple}x anchor. Nothing in the current numbers supports this level.`,
+      `${ticker}: above every valuation method`,
+      `Price ${fmt(stats.last)} is above ${fmt(topBand.priceHi)}, the top of a band table built ` +
+        `on ${valuation?.methods.length} method${valuation?.methods.length === 1 ? "" : "s"} ` +
+        `(fair value ${fmt(valuation?.fairValue)}, ${valuation?.anchorLabel}).`,
       30
     );
   }

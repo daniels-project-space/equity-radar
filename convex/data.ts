@@ -174,6 +174,13 @@ const quarterFields = {
   totalDebt: v.optional(v.number()),
   sharesDiluted: v.optional(v.number()),
   rnd: v.optional(v.number()),
+  totalAssets: v.optional(v.number()),
+  totalLiabilities: v.optional(v.number()),
+  equity: v.optional(v.number()),
+  cryptoFairValue: v.optional(v.number()),
+  longTermInvestments: v.optional(v.number()),
+  interestExpense: v.optional(v.number()),
+  depreciationAmortization: v.optional(v.number()),
 };
 
 export const storeQuarters = internalMutation({
@@ -213,6 +220,13 @@ export const storeQuarters = internalMutation({
         totalDebt: q.totalDebt,
         sharesDiluted: q.sharesDiluted,
         rnd: q.rnd,
+        totalAssets: q.totalAssets,
+        totalLiabilities: q.totalLiabilities,
+        equity: q.equity,
+        cryptoFairValue: q.cryptoFairValue,
+        longTermInvestments: q.longTermInvestments,
+        interestExpense: q.interestExpense,
+        depreciationAmortization: q.depreciationAmortization,
       };
       if (existing) {
         // Never let an XBRL refresh clobber a press-release adjusted figure.
@@ -237,6 +251,7 @@ export const storeMetrics = internalMutation({
       ticker,
       asOf: new Date().toISOString().slice(0, 10),
       ...metrics,
+      moatDrivers: undefined, // superseded by the pillar model
       updatedAt: Date.now(),
     };
     if (existing) await ctx.db.patch(existing._id, doc);
@@ -269,6 +284,11 @@ export const storeBands = internalMutation({
       ticker,
       date: new Date().toISOString().slice(0, 10),
       ...bands,
+      // Explicitly clear the old single-multiple fields; an omitted key would
+      // leave the stale value in place forever.
+      basis: undefined,
+      basisValue: undefined,
+      targetMultiple: undefined,
       updatedAt: Date.now(),
     };
     if (existing) await ctx.db.patch(existing._id, doc);

@@ -19,6 +19,22 @@ export const signedPct = (n?: number | null, dp = 1) =>
     ? `${n >= 0 ? "+" : ""}${(n * 100).toFixed(dp)}%`
     : "—";
 
+/**
+ * "Not meaningful" rather than a number. A ratio with a near-zero denominator
+ * is arithmetically valid and analytically useless — Strategy's operating
+ * margin reads -7295% because its revenue is a rounding error against its
+ * balance sheet. Printing that makes the panel look broken.
+ */
+export const pctOrNm = (n?: number | null, limit = 3, dp = 1) => {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  return Math.abs(n) > limit ? "n/m" : `${(n * 100).toFixed(dp)}%`;
+};
+
+export const multOrNm = (n?: number | null, limit = 50, dp = 1) => {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  return n > limit || n < 0 ? "n/m" : `${n.toFixed(dp)}x`;
+};
+
 export const mult = (n?: number | null, dp = 1) =>
   typeof n === "number" && Number.isFinite(n) ? `${n.toFixed(dp)}x` : "—";
 
@@ -55,12 +71,19 @@ export const ACTION_COLOR: Record<string, string> = {
 export const isStale = (periodEnd?: string) =>
   !!periodEnd && Date.now() - Date.parse(periodEnd) > 150 * 86_400_000;
 
-/** What the buy zones are actually anchored to. Never blur these together. */
-export const BASIS_LABEL: Record<string, string> = {
-  fwdEps: "consensus forward EPS",
-  modelledEps: "modelled NTM EPS",
-  ttmEps: "trailing EPS",
-  evSales: "EV/Sales",
+/** What kind of company this is, which decides how it can be valued at all. */
+export const ARCHETYPE_LABEL: Record<string, string> = {
+  assetHolding: "Asset holding",
+  financial: "Financial",
+  reit: "REIT",
+  preProfit: "Pre-profit growth",
+  earnings: "Earnings compounder",
+};
+
+export const CONFIDENCE_COLOR: Record<string, string> = {
+  high: "var(--good)",
+  medium: "var(--warn)",
+  low: "var(--bad)",
 };
 
 export const scoreColor = (n?: number) => {

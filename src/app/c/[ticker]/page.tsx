@@ -14,7 +14,10 @@ import {
   bps,
   num,
   isStale,
-  BASIS_LABEL,
+  pctOrNm,
+  multOrNm,
+  ARCHETYPE_LABEL,
+  CONFIDENCE_COLOR,
   VERDICT_COLOR,
   ACTION_COLOR,
   scoreColor,
@@ -77,11 +80,12 @@ export default function CompanyPage() {
                 {isStale(m.latestPeriodEnd) && " · lagging"}
               </span>
             )}
-            {data.bands && (
-              <span className="chip">
-                bands on {BASIS_LABEL[data.bands.basis] ?? data.bands.basis} @ {data.bands.targetMultiple}x
+            {data.bands?.archetype && (
+              <span className="chip" title={data.bands.archetypeReason}>
+                {ARCHETYPE_LABEL[data.bands.archetype] ?? data.bands.archetype}
               </span>
             )}
+            {data.bands?.anchorLabel && <span className="chip">{data.bands.anchorLabel}</span>}
           </div>
         </div>
 
@@ -162,23 +166,23 @@ export default function CompanyPage() {
               />
               <Metric label="EPS TTM" value={usd(m?.epsTtm)} />
               <Metric label="EPS YoY" value={signedPct(m?.epsYoY)} good={(m?.epsYoY ?? 0) > 0.2} />
-              <Metric label="Gross margin" value={pct(m?.grossMarginPct)} />
+              <Metric label="Gross margin" value={pctOrNm(m?.grossMarginPct)} />
               <Metric label="GM trend" value={bps(m?.grossMarginDeltaYoY)} good={(m?.grossMarginDeltaYoY ?? 0) > 0} />
-              <Metric label="Operating margin" value={pct(m?.opMarginPct)} />
-              <Metric label="Net margin" value={pct(m?.netMarginPct)} />
+              <Metric label="Operating margin" value={pctOrNm(m?.opMarginPct)} />
+              <Metric label="Net margin" value={pctOrNm(m?.netMarginPct)} />
               <Metric label="FCF TTM" value={bigUsd(m?.fcfTtm)} />
-              <Metric label="FCF margin" value={pct(m?.fcfMarginPct)} />
+              <Metric label="FCF margin" value={pctOrNm(m?.fcfMarginPct)} />
               <Metric label="R&D intensity" value={pct(m?.rndIntensityPct)} />
               <Metric label="Dilution YoY" value={signedPct(m?.sharesYoY)} good={(m?.sharesYoY ?? 0) < 0.02} />
               <Metric label="Net cash" value={bigUsd(m?.netCash)} good={(m?.netCash ?? 0) > 0} />
               <Metric label="Net debt / EBITDA" value={num(m?.netDebtToEbitda, 2)} />
-              <Metric label="P/E (TTM)" value={mult(m?.peTtm)} />
+              <Metric label="P/E (TTM)" value={multOrNm(m?.peTtm, 200)} />
               <Metric
                 label={m?.fwdEpsBasis === "modelled" ? "P/E (modelled fwd)" : "P/E (forward)"}
                 value={mult(m?.fwdPe)}
               />
-              <Metric label="EV / Sales" value={mult(m?.evToSales)} />
-              <Metric label="P / FCF" value={mult(m?.pToFcf, 0)} />
+              <Metric label="EV / Sales" value={multOrNm(m?.evToSales)} />
+              <Metric label="P / FCF" value={multOrNm(m?.pToFcf, 200, 0)} />
               <Metric label="12m return" value={signedPct(p?.ret12m)} />
               <Metric label="3m return" value={signedPct(p?.ret3m)} />
             </div>
@@ -234,14 +238,63 @@ export default function CompanyPage() {
 
         <div className="space-y-5">
           {/* buy bands */}
-          <Panel title="Buy zones">
+          <Panel title="Valuation">
             {bandList.length === 0 && (
               <p className="text-[11px] text-[var(--muted)]">
-                Not computable — needs positive EPS or revenue plus a share count.
+                Not computable — needs a share count plus at least one of earnings, revenue or
+                book equity.
               </p>
             )}
             {bandList.length > 0 && (
               <>
+                <div className="mb-3 flex items-end justify-between gap-3 border-b border-[var(--line)] pb-3">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
+                      Fair value
+                    </div>
+                    <div className="text-[19px] font-semibold tabular">
+                      {usd(data.bands?.fairValue)}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div
+                      className="text-[15px] font-semibold tabular"
+                      style={{
+                        color: (data.bands?.upside ?? 0) >= 0 ? "var(--good)" : "var(--bad)",
+                      }}
+                    >
+                      {(data.bands?.upside ?? 0) >= 0 ? "+" : ""}
+                      {data.bands?.upside}%
+                    </div>
+                    <div
+                      className="text-[10px]"
+                      style={{ color: CONFIDENCE_COLOR[data.bands?.confidence ?? ""] }}
+                    >
+                      {data.bands?.confidence} confidence
+                    </div>
+                  </div>
+                </div>
+
+                {/* Every method that applied, so the number can be argued with. */}
+                <ul className="mb-3 space-y-1.5">
+                  {(data.bands?.methods ?? []).map(
+                    (mt: { key: string; label: string; perShare: number; weight: number; basis: string }) => (
+                      <li key={mt.key} className="text-[11px]">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span>{mt.label}</span>
+                          <span className="tabular">
+                            {usd(mt.perShare)}
+                            <span className="ml-1.5 text-[var(--muted)]">
+                              {Math.round(mt.weight * 100)}%
+                            </span>
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-[var(--muted)]">{mt.basis}</div>
+                      </li>
+                    )
+                  )}
+                </ul>
+
                 <table className="w-full text-[11px] tabular">
                   <tbody>
                     {[...bandList].reverse().map((b) => {
@@ -268,18 +321,18 @@ export default function CompanyPage() {
                     })}
                   </tbody>
                 </table>
-                <p className="mt-2 text-[10px] leading-snug text-[var(--muted)]">
-                  Bands are {data.bands?.targetMultiple}x{" "}
-                  {BASIS_LABEL[data.bands?.basis ?? ""] ?? "—"}, scaled. They move with the peer
-                  group and with earnings — recomputed daily, not a fixed opinion.
-                </p>
                 <ZoneOverride ticker={ticker} />
-                {data.bands?.basis === "modelledEps" && (
+                <p className="mt-2 text-[10px] leading-snug text-[var(--muted)]">
+                  Zones are distance from fair value, scaled by a{" "}
+                  {Math.round((data.bands?.marginOfSafety ?? 0) * 100)}% margin of safety. The
+                  margin widens automatically when the valuation methods disagree, so a less
+                  certain estimate demands a deeper discount before it reads as a buy.
+                </p>
+                {m?.fwdEpsBasis === "modelled" && data.bands?.archetype === "earnings" && (
                   <p className="mt-1.5 text-[10px] leading-snug text-[var(--warn)]">
-                    Forward EPS here is <strong>modelled, not consensus</strong>: trailing EPS grown
-                    by the damped median of the last four quarterly YoY rates. No free keyless
-                    source publishes analyst estimates. Set <code>FMP_API_KEY</code> to switch this
-                    to real consensus.
+                    Forward EPS is <strong>modelled, not consensus</strong> — trailing EPS grown by
+                    the damped median of the last four quarterly YoY rates. Set{" "}
+                    <code>FMP_API_KEY</code> for real consensus.
                   </p>
                 )}
               </>
@@ -287,54 +340,88 @@ export default function CompanyPage() {
           </Panel>
 
           {/* moat */}
-          <Panel title="Moat direction">
-            {m?.moatTrend === undefined ? (
+          <Panel title="Moat">
+            {m?.moatScore === undefined ? (
               <p className="text-[11px] text-[var(--muted)]">
                 Needs eight quarters of filings to compute.
               </p>
             ) : (
               <>
-                <div className="mb-3 flex items-baseline gap-2">
+                <div className="mb-2 flex items-baseline gap-3">
                   <span
                     className="text-[22px] font-semibold tabular"
-                    style={{
-                      color:
-                        m.moatTrend >= 15
-                          ? "var(--good)"
-                          : m.moatTrend <= -15
-                            ? "var(--bad)"
-                            : "var(--muted)",
-                    }}
+                    style={{ color: scoreColor(m.moatScore) }}
                   >
-                    {m.moatTrend > 0 ? "+" : ""}
-                    {m.moatTrend}
+                    {m.moatScore}
                   </span>
-                  <span className="text-[11px] text-[var(--muted)]">
-                    {m.moatTrend >= 15 ? "widening" : m.moatTrend <= -15 ? "narrowing" : "stable"}
-                  </span>
+                  {m.moatTrend !== undefined && (
+                    <span
+                      className="text-[12px] tabular"
+                      style={{
+                        color:
+                          m.moatTrend >= 15
+                            ? "var(--good)"
+                            : m.moatTrend <= -15
+                              ? "var(--bad)"
+                              : "var(--muted)",
+                      }}
+                    >
+                      {m.moatTrend > 0 ? "+" : ""}
+                      {m.moatTrend} direction
+                    </span>
+                  )}
                 </div>
-                <ul className="space-y-1.5">
-                  {((m.moatDrivers ?? []) as { label: string; delta: number; unit: string }[]).map((d) => {
-                    // Share count is the one driver where up is bad.
-                    const good = d.label === "Share count" ? d.delta <= 0 : d.delta >= 0;
-                    return (
-                      <li key={d.label} className="flex items-baseline justify-between text-[11px]">
-                        <span className="text-[var(--muted)]">{d.label}</span>
-                        <span
-                          className="tabular"
-                          style={{ color: good ? "var(--good)" : "var(--bad)" }}
-                        >
-                          {d.delta > 0 ? "+" : ""}
-                          {d.delta}
-                          {d.unit}
+                <p className="mb-3 text-[11px] leading-snug text-[var(--muted)]">{m.moatSummary}</p>
+
+                {/* Each pillar carries the numbers behind it, so a claim can be
+                    checked rather than trusted. */}
+                <ul className="space-y-2.5">
+                  {((m.moatPillars ?? []) as {
+                    key: string;
+                    label: string;
+                    level?: number;
+                    trend?: number;
+                    evidence: string;
+                  }[]).map((pl) => (
+                    <li key={pl.key}>
+                      <div className="mb-1 flex items-baseline justify-between gap-2 text-[11px]">
+                        <span>{pl.label}</span>
+                        <span className="tabular" style={{ color: scoreColor(pl.level) }}>
+                          {pl.level === undefined ? "—" : Math.round(pl.level)}
+                          {pl.trend !== undefined && (
+                            <span
+                              className="ml-1.5"
+                              style={{
+                                color:
+                                  pl.trend >= 15
+                                    ? "var(--good)"
+                                    : pl.trend <= -15
+                                      ? "var(--bad)"
+                                      : "var(--muted)",
+                              }}
+                            >
+                              {pl.trend >= 15 ? "↑" : pl.trend <= -15 ? "↓" : "→"}
+                            </span>
+                          )}
                         </span>
-                      </li>
-                    );
-                  })}
+                      </div>
+                      {pl.level !== undefined && (
+                        <div className="h-1 overflow-hidden rounded-full bg-[var(--panel-2)]">
+                          <div
+                            className="h-full rounded-full"
+                            style={{ width: `${pl.level}%`, background: scoreColor(pl.level) }}
+                          />
+                        </div>
+                      )}
+                      <p className="mt-1 text-[10px] leading-snug text-[var(--muted)]">
+                        {pl.evidence}
+                      </p>
+                    </li>
+                  ))}
                 </ul>
-                <p className="mt-2.5 text-[10px] leading-snug text-[var(--muted)]">
-                  Year-over-year change in pricing power, operating leverage, cash conversion and
-                  dilution. It measures direction, not absolute quality.
+                <p className="mt-3 border-t border-[var(--line)] pt-2 text-[10px] leading-snug text-[var(--muted)]">
+                  Pillars are chosen for the archetype. An asset-holding company is judged on NAV
+                  per share, issuance discipline and leverage — not on gross margin.
                 </p>
               </>
             )}

@@ -157,6 +157,35 @@ const CONCEPTS = {
     "us-gaap": ["LongTermDebtCurrent", "DebtCurrent", "ShortTermBorrowings"],
     "ifrs-full": ["CurrentPortionOfLongtermBorrowings", "ShorttermBorrowings"],
   },
+  // --- balance-sheet aggregates, needed for asset-based and book-value
+  // --- valuation of companies whose worth is not an earnings stream
+  totalAssets: { "us-gaap": ["Assets"], "ifrs-full": ["Assets"] },
+  totalLiabilities: { "us-gaap": ["Liabilities"], "ifrs-full": ["Liabilities"] },
+  equity: {
+    "us-gaap": ["StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
+    "ifrs-full": ["Equity", "EquityAttributableToOwnersOfParent"],
+  },
+  /** ASU 2023-08 fair-value tags. This is what makes a bitcoin treasury legible. */
+  cryptoFairValue: {
+    "us-gaap": ["CryptoAssetFairValue", "IndefiniteLivedIntangibleAssetsExcludingGoodwill"],
+    "ifrs-full": [],
+  },
+  longTermInvestments: {
+    "us-gaap": ["LongTermInvestments", "MarketableSecuritiesNoncurrent", "EquityMethodInvestments"],
+    "ifrs-full": ["OtherNoncurrentFinancialAssets", "InvestmentsInAssociatesJointVenturesAndSubsidiaries"],
+  },
+  interestExpense: {
+    "us-gaap": ["InterestExpense", "InterestExpenseDebt", "InterestIncomeExpenseNet"],
+    "ifrs-full": ["FinanceCosts"],
+  },
+  depreciationAmortization: {
+    "us-gaap": [
+      "DepreciationDepletionAndAmortization",
+      "DepreciationAmortizationAndAccretionNet",
+      "Depreciation",
+    ],
+    "ifrs-full": ["DepreciationAndAmortisationExpense"],
+  },
 } as const;
 
 type ConceptKey = keyof typeof CONCEPTS;
@@ -312,6 +341,13 @@ export type SecQuarter = {
   totalDebt?: number;
   sharesDiluted?: number;
   rnd?: number;
+  totalAssets?: number;
+  totalLiabilities?: number;
+  equity?: number;
+  cryptoFairValue?: number;
+  longTermInvestments?: number;
+  interestExpense?: number;
+  depreciationAmortization?: number;
 };
 
 /** Fetch and normalize the last N quarters of GAAP fundamentals. */
@@ -331,12 +367,19 @@ export async function fetchQuarters(cik: string, limit = 12): Promise<{ name: st
     rnd: seriesFor(cf, "rnd", "duration"),
     ocf: seriesFor(cf, "ocf", "duration"),
     capex: seriesFor(cf, "capex", "duration"),
+    interestExpense: seriesFor(cf, "interestExpense", "duration"),
+    depreciationAmortization: seriesFor(cf, "depreciationAmortization", "duration"),
   };
   const inst = {
     cash: seriesFor(cf, "cash", "instant"),
     sti: seriesFor(cf, "shortTermInvestments", "instant"),
     ltd: seriesFor(cf, "longTermDebt", "instant"),
     cd: seriesFor(cf, "currentDebt", "instant"),
+    totalAssets: seriesFor(cf, "totalAssets", "instant"),
+    totalLiabilities: seriesFor(cf, "totalLiabilities", "instant"),
+    equity: seriesFor(cf, "equity", "instant"),
+    cryptoFairValue: seriesFor(cf, "cryptoFairValue", "instant"),
+    longTermInvestments: seriesFor(cf, "longTermInvestments", "instant"),
     deiShares: deiSharesOutstanding(cf),
   };
 
@@ -397,6 +440,13 @@ export async function fetchQuarters(cik: string, limit = 12): Promise<{ name: st
       totalDebt,
       sharesDiluted,
       rnd: dur.rnd.get(end),
+      totalAssets: asOf(inst.totalAssets, end),
+      totalLiabilities: asOf(inst.totalLiabilities, end),
+      equity: asOf(inst.equity, end),
+      cryptoFairValue: asOf(inst.cryptoFairValue, end),
+      longTermInvestments: asOf(inst.longTermInvestments, end),
+      interestExpense: dur.interestExpense.get(end),
+      depreciationAmortization: dur.depreciationAmortization.get(end),
     };
   });
 

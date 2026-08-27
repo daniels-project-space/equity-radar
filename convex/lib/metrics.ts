@@ -18,6 +18,13 @@ export type Quarter = {
   totalDebt?: number;
   sharesDiluted?: number;
   rnd?: number;
+  totalAssets?: number;
+  totalLiabilities?: number;
+  equity?: number;
+  cryptoFairValue?: number;
+  longTermInvestments?: number;
+  interestExpense?: number;
+  depreciationAmortization?: number;
 };
 
 export type DerivedMetrics = {

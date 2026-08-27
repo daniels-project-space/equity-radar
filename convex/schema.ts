@@ -92,6 +92,13 @@ export default defineSchema({
     totalDebt: v.optional(v.number()),
     sharesDiluted: v.optional(v.number()),
     rnd: v.optional(v.number()),
+    totalAssets: v.optional(v.number()),
+    totalLiabilities: v.optional(v.number()),
+    equity: v.optional(v.number()),
+    cryptoFairValue: v.optional(v.number()),
+    longTermInvestments: v.optional(v.number()),
+    interestExpense: v.optional(v.number()),
+    depreciationAmortization: v.optional(v.number()),
     sourceUrl: v.optional(v.string()),
     ingestedAt: v.number(),
   })
@@ -154,10 +161,15 @@ export default defineSchema({
     fwdEpsBasis: v.optional(v.union(v.literal("consensus"), v.literal("modelled"))),
     modelledNtmEps: v.optional(v.number()),
     isGaapLoss: v.optional(v.boolean()),
-    /** Moat direction, -100..100. Derived from margin, FCF and dilution trends
-     *  rather than score history, so it is meaningful from day one. */
+    /** Moat level 0..100 and direction -100..100, plus the full pillar
+     *  breakdown with the evidence behind each one. */
+    moatScore: v.optional(v.number()),
     moatTrend: v.optional(v.number()),
-    moatDrivers: v.optional(v.array(v.object({ label: v.string(), delta: v.number(), unit: v.string() }))),
+    moatSummary: v.optional(v.string()),
+    moatPillars: v.optional(v.any()),
+    archetype: v.optional(v.string()),
+    /** legacy from the four-driver moat model, cleared on re-ingest */
+    moatDrivers: v.optional(v.any()),
     /** Peer-relative context, filled in once a peer group has >= 3 scored names. */
     peerRet3m: v.optional(v.number()),
     peerRevYoY: v.optional(v.number()),
@@ -202,14 +214,35 @@ export default defineSchema({
   buy_bands: defineTable({
     ticker: v.string(),
     date: v.string(),
-    basis: v.union(
-      v.literal("fwdEps"),
-      v.literal("modelledEps"),
-      v.literal("ttmEps"),
-      v.literal("evSales")
+    // The valuation, stored whole: which archetype this company is, every
+    // fair-value method that applied, and how much they disagree — so the UI
+    // can show the working rather than a bare verdict.
+    // Optional so a row written under an earlier shape cannot wedge a deploy;
+    // every field is populated on the next ingest.
+    archetype: v.optional(v.string()),
+    archetypeReason: v.optional(v.string()),
+    anchor: v.optional(v.number()),
+    anchorLabel: v.optional(v.string()),
+    methods: v.optional(
+      v.array(
+        v.object({
+          key: v.string(),
+          label: v.string(),
+          perShare: v.number(),
+          weight: v.number(),
+          basis: v.string(),
+        })
+      )
     ),
-    basisValue: v.number(),
-    targetMultiple: v.number(),
+    fairValue: v.optional(v.number()),
+    dispersion: v.optional(v.number()),
+    marginOfSafety: v.optional(v.number()),
+    confidence: v.optional(v.string()),
+    upside: v.optional(v.number()),
+    // legacy fields from the single-multiple model, cleared on re-ingest
+    basis: v.optional(v.string()),
+    basisValue: v.optional(v.number()),
+    targetMultiple: v.optional(v.number()),
     bands: v.array(
       v.object({
         label: v.string(),
