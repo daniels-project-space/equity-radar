@@ -20,6 +20,16 @@ crons.cron("weekly universe refresh", "17 3 * * 0", internal.ingest.refreshUnive
 /** A fresh 10-K/10-Q should not wait for tomorrow's sweep. */
 crons.interval("poll filings", { hours: 6 }, internal.ingest.pollFilings, {});
 
+/**
+ * Live prices through the US session. Quotes only — no SEC traffic — so the
+ * chart, the day's change and the current band stay current without pretending
+ * the fundamentals were re-examined. 13-20 UTC covers 09:30-16:30 ET in summer;
+ * the winter hour of drift costs one stale reading at each end.
+ */
+crons.cron("intraday quotes", "*/12 13-20 * * 1-5", internal.ingest.refreshQuotes, {});
+/** One clean read after the close, so the day ends on a settled price. */
+crons.cron("closing quote", "35 20 * * 1-5", internal.ingest.refreshQuotes, {});
+
 /** Records the day's DCA recommendation, then re-runs the rule simulation. */
 crons.cron("snapshot allocation", "10 6 * * 1-5", internal.strategyActions.snapshotAllocation, {});
 crons.cron("run strategy simulation", "25 6 * * 1-5", internal.strategyActions.runSimCron, {});

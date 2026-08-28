@@ -1,60 +1,76 @@
 /**
- * Expectations investing — what the price already assumes.
+ * Expectations investing — what the price already assumes, and what it would be
+ * worth if those assumptions were defensible.
  *
  * A fair-value estimate answers "what is it worth?", which requires forecasting
- * growth, margins and duration, and then presents a point estimate with false
- * precision. Worse, when the whole market is expensive, every name fails at
- * once and the system says "buy nothing" — which is a statement about the
- * regime, not about the company.
+ * growth, margins and duration, then presents a point estimate with false
+ * precision. Worse, when the whole market is expensive every name fails at once
+ * and the system says "buy nothing" — a statement about the regime, not about
+ * the company.
  *
  * This inverts it, following Rappaport and Mauboussin: take the price as given
  * and solve for the growth the market is already paying for. The question stops
  * being "is this cheap?" and becomes "is what the market expects plausible?" —
- * which is answerable from history and moat evidence, stays informative when
- * everything is expensive, and does not collapse to a binary.
+ * answerable from history and moat evidence, still discriminating when
+ * everything looks expensive, and not a binary.
  *
- * A high-multiple compounder priced for growth it has actually delivered is a
- * different proposition from one priced for growth nobody has ever sustained.
- * A fair-value gate cannot tell those apart. This can.
+ * Growth fades linearly toward the terminal rate rather than holding flat.
+ * That matters for more than realism: a constant 10-year rate is not comparable
+ * to a trailing one-year growth number, so the flat version was quietly
+ * overstating how modest an implied rate looked. With a fade, the solved
+ * starting rate sits on the same footing as delivered growth.
+ *
+ * Both directions of the same model are exported. `readExpectations` solves
+ * price -> implied growth for judgement; `justifiedValue` runs growth -> price
+ * at a rate the business has earned the right to, and feeds the valuation as
+ * one method among several.
  */
 
 export type Expectations = {
-  /** Annual FCF growth over the horizon implied by today's price. */
+  /** Starting annual FCF growth implied by today's price, fading to terminal. */
   impliedGrowth: number;
   /** What the business has actually been doing, for comparison. */
   referenceGrowth?: number;
+  /** The rate the model thinks is defensible, after the moat cap. */
+  justifiedGrowth?: number;
   horizonYears: number;
   discountRate: number;
   terminalGrowth: number;
-  /** How demanding the implied growth is against the reference. */
   verdict: "undemanding" | "in line" | "demanding" | "heroic" | "unpriceable";
-  /** Plain-language statement of what the buyer is underwriting. */
   summary: string;
   /** Gap in pp between implied and reference growth. Positive = market expects more. */
   gap?: number;
 };
 
-/** Present value of a growing cash flow stream plus a terminal value. */
-function pv(fcf0: number, g: number, years: number, wacc: number, tg: number): number {
+const TERMINAL_GROWTH = 0.025;
+
+/**
+ * Present value with growth fading linearly from `g0` to the terminal rate.
+ *
+ * No business sustains its current growth for a decade and then stops dead;
+ * the fade is what keeps a hot trailing quarter from implying any price.
+ */
+function pvFading(fcf0: number, g0: number, years: number, wacc: number, tg: number): number {
   let total = 0;
   let cf = fcf0;
   for (let t = 1; t <= years; t++) {
+    const g = g0 + (tg - g0) * (t / years);
     cf = cf * (1 + g);
     total += cf / Math.pow(1 + wacc, t);
   }
-  // Terminal value assumes competition has eroded excess returns by then.
+  // By the terminal year competition is assumed to have eroded excess returns.
   const terminal = (cf * (1 + tg)) / (wacc - tg);
   return total + terminal / Math.pow(1 + wacc, years);
 }
 
 /**
- * Solves for the growth rate that makes the model reproduce today's price.
+ * Solves for the starting growth rate that reproduces today's price.
  *
- * Bisection rather than a closed form: the terminal term makes this awkward
- * analytically, and 60 iterations is exact enough for a number that will be
- * rounded to a percent and read as a judgement, not a measurement.
+ * Bisection rather than a closed form: the fade plus terminal term makes this
+ * awkward analytically, and 60 iterations is exact enough for a number that
+ * gets rounded to a percent and read as a judgement, not a measurement.
  */
-function solveGrowth(
+function solveInitialGrowth(
   ev: number,
   fcf0: number,
   years: number,
@@ -62,13 +78,15 @@ function solveGrowth(
   tg: number
 ): number | null {
   if (fcf0 <= 0 || ev <= 0) return null;
-  let lo = -0.5;
-  let hi = 1.5;
-  if (pv(fcf0, lo, years, wacc, tg) > ev) return null; // cheaper than any scenario
-  if (pv(fcf0, hi, years, wacc, tg) < ev) return null; // needs implausible growth
+  const lo0 = -0.6;
+  const hi0 = 2.5;
+  if (pvFading(fcf0, lo0, years, wacc, tg) > ev) return null; // cheaper than any scenario
+  if (pvFading(fcf0, hi0, years, wacc, tg) < ev) return null; // beyond what this can express
+  let lo = lo0;
+  let hi = hi0;
   for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;
-    if (pv(fcf0, mid, years, wacc, tg) < ev) lo = mid;
+    if (pvFading(fcf0, mid, years, wacc, tg) < ev) lo = mid;
     else hi = mid;
   }
   return (lo + hi) / 2;
@@ -76,10 +94,10 @@ function solveGrowth(
 
 /**
  * A wider moat can sustain high growth for longer, so it earns a longer
- * explicit forecast period. This is the one place moat feeds the arithmetic
- * rather than a score.
+ * explicit forecast period. This is one of two places moat enters the
+ * arithmetic rather than sitting in a score.
  */
-function horizonFor(moatScore?: number): number {
+export function horizonFor(moatScore?: number): number {
   const m = moatScore ?? 40;
   if (m >= 75) return 12;
   if (m >= 55) return 10;
@@ -88,7 +106,7 @@ function horizonFor(moatScore?: number): number {
 }
 
 /** Riskier balance sheets and thinner moats deserve a higher hurdle. */
-function discountFor(moatScore?: number, netDebtToEbitda?: number): number {
+export function discountFor(moatScore?: number, netDebtToEbitda?: number): number {
   let w = 0.09;
   if ((moatScore ?? 40) >= 70) w -= 0.005;
   if ((moatScore ?? 40) < 35) w += 0.01;
@@ -96,10 +114,74 @@ function discountFor(moatScore?: number, netDebtToEbitda?: number): number {
   return w;
 }
 
+/**
+ * The growth rate a business has earned the right to be valued on.
+ *
+ * Anchored on what it actually delivered, never assuming acceleration, and
+ * capped by moat — the second place moat does real work. Without the cap a
+ * single boom year would justify any price, which is the failure mode this
+ * whole module exists to avoid.
+ */
+export function justifiedGrowthRate(input: {
+  revYoY?: number;
+  revYoYPrior?: number;
+  guidedGrowth?: number;
+  moatScore?: number;
+}): number | undefined {
+  const hist = [input.revYoY, input.revYoYPrior].filter(
+    (x): x is number => typeof x === "number"
+  );
+  const base =
+    input.guidedGrowth !== undefined
+      ? input.guidedGrowth
+      : hist.length
+        ? hist.reduce((a, b) => a + b, 0) / hist.length
+        : undefined;
+  if (base === undefined) return undefined;
+
+  const m = input.moatScore ?? 40;
+  const cap = m >= 75 ? 0.35 : m >= 55 ? 0.28 : m >= 35 ? 0.2 : 0.12;
+  // Never extrapolate acceleration, and never below a modest decline.
+  return Math.max(-0.05, Math.min(base, cap));
+}
+
+/**
+ * Per-share value implied by growth the business has actually demonstrated.
+ *
+ * This is the number that lets a high-multiple compounder and an expensive
+ * melting ice cube be told apart — the multiple looks the same, the growth
+ * behind it does not.
+ */
+export function justifiedValue(input: {
+  fcfTtm?: number;
+  netCash?: number;
+  shares?: number;
+  revYoY?: number;
+  revYoYPrior?: number;
+  guidedGrowth?: number;
+  moatScore?: number;
+  netDebtToEbitda?: number;
+}): { perShare: number; growth: number; horizon: number; wacc: number } | null {
+  const { fcfTtm, shares } = input;
+  if (!fcfTtm || fcfTtm <= 0 || !shares || shares <= 0) return null;
+
+  const g = justifiedGrowthRate(input);
+  if (g === undefined) return null;
+
+  const horizon = horizonFor(input.moatScore);
+  const wacc = discountFor(input.moatScore, input.netDebtToEbitda);
+  const ev = pvFading(fcfTtm, g, horizon, wacc, TERMINAL_GROWTH);
+  const perShare = (ev + (input.netCash ?? 0)) / shares;
+  if (!Number.isFinite(perShare) || perShare <= 0) return null;
+
+  return { perShare, growth: g, horizon, wacc };
+}
+
 export function readExpectations(input: {
   marketCap?: number;
   netCash?: number;
   fcfTtm?: number;
+  revenueTtm?: number;
   revYoY?: number;
   revYoYPrior?: number;
   guidedGrowth?: number;
@@ -111,13 +193,10 @@ export function readExpectations(input: {
 
   const horizonYears = horizonFor(input.moatScore);
   const discountRate = discountFor(input.moatScore, input.netDebtToEbitda);
-  const terminalGrowth = 0.025;
 
   // Enterprise value: what the operating business itself is being priced at.
   const ev = marketCap - (netCash ?? 0);
 
-  // The reference is what the business has actually been delivering. Guidance
-  // is used when management has given it, since that is the more current claim.
   // Both arrive as fractions (0.5 = 50%), matching the rest of the pipeline.
   const hist = [input.revYoY, input.revYoYPrior].filter(
     (x): x is number => typeof x === "number"
@@ -128,38 +207,51 @@ export function readExpectations(input: {
       : hist.length
         ? hist.reduce((a, b) => a + b, 0) / hist.length
         : undefined;
+  const justified = justifiedGrowthRate(input);
 
-  if (!fcfTtm || fcfTtm <= 0) {
+  const base = {
+    referenceGrowth: referenceGrowth === undefined ? undefined : r1(referenceGrowth * 100),
+    justifiedGrowth: justified === undefined ? undefined : r1(justified * 100),
+    horizonYears,
+    discountRate: r1(discountRate * 100),
+    terminalGrowth: r1(TERMINAL_GROWTH * 100),
+  };
+
+  // A free cash flow that rounds to nothing against revenue is far more often a
+  // bad parse than a real result, and solving a growth rate from it produces a
+  // confident number built on noise. Say so instead.
+  const implausible =
+    !!fcfTtm && fcfTtm > 0 && !!input.revenueTtm && input.revenueTtm > 0 &&
+    fcfTtm / input.revenueTtm < 0.01;
+
+  if (!fcfTtm || fcfTtm <= 0 || implausible) {
     return {
+      ...base,
       impliedGrowth: 0,
-      referenceGrowth,
-      horizonYears,
-      discountRate,
-      terminalGrowth,
       verdict: "unpriceable",
-      summary:
-        "No positive free cash flow to discount, so the price cannot be translated into an " +
-        "expected growth rate. Judge this one on the balance sheet and the path to cash generation.",
+      summary: implausible
+        ? "Reported free cash flow is a rounding error against revenue, which usually means the " +
+          "filing did not parse cleanly rather than that the business generates no cash. The " +
+          "price is not being translated into a growth assumption until that figure is credible."
+        : "No positive free cash flow to discount, so the price cannot be translated into an " +
+          "expected growth rate. Judge this one on the balance sheet and the path to cash generation.",
     };
   }
 
-  const g = solveGrowth(ev, fcfTtm, horizonYears, discountRate, terminalGrowth);
+  const g = solveInitialGrowth(ev, fcfTtm, horizonYears, discountRate, TERMINAL_GROWTH);
   if (g === null) {
     return {
+      ...base,
       impliedGrowth: 0,
-      referenceGrowth,
-      horizonYears,
-      discountRate,
-      terminalGrowth,
       verdict: "unpriceable",
       summary:
-        "The price sits outside the range this model can express — either far below any " +
-        "reasonable scenario or beyond a 150% annual growth assumption.",
+        "The price sits outside the range this model can express — either below any scenario " +
+        "with positive growth, or beyond a 250% starting growth assumption.",
     };
   }
 
   const impliedPct = g * 100;
-  const refPct = referenceGrowth === undefined ? undefined : referenceGrowth * 100;
+  const refPct = base.referenceGrowth;
   const gap = refPct === undefined ? undefined : impliedPct - refPct;
 
   let verdict: Expectations["verdict"] = "in line";
@@ -170,23 +262,22 @@ export function readExpectations(input: {
   else if (gap < 20) verdict = "demanding";
   else verdict = "heroic";
 
-  const r = (n: number) => Math.round(n * 10) / 10;
   const refClause =
     refPct === undefined
       ? "There is no clean growth history to compare that against."
-      : `It has recently been growing at ${r(refPct)}%, so the market is asking for ` +
-        `${gap! >= 0 ? `${r(gap!)}pp more` : `${r(-gap!)}pp less`} than the current run rate.`;
+      : `It has recently been growing at ${refPct}%, so the market is asking for ` +
+        `${gap! >= 0 ? `${r1(gap!)}pp more` : `${r1(-gap!)}pp less`} than the current run rate.`;
 
   return {
-    impliedGrowth: r(impliedPct),
-    referenceGrowth: refPct === undefined ? undefined : r(refPct),
-    horizonYears,
-    discountRate: r(discountRate * 100),
-    terminalGrowth: r(terminalGrowth * 100),
+    ...base,
+    impliedGrowth: r1(impliedPct),
     verdict,
-    gap: gap === undefined ? undefined : r(gap),
+    gap: gap === undefined ? undefined : r1(gap),
     summary:
-      `At today's price a buyer is underwriting ${r(impliedPct)}% annual free cash flow growth ` +
-      `for ${horizonYears} years, discounted at ${r(discountRate * 100)}%. ${refClause}`,
+      `At today's price a buyer is underwriting ${r1(impliedPct)}% free cash flow growth next year, ` +
+      `fading to ${base.terminalGrowth}% over ${horizonYears} years, discounted at ${base.discountRate}%. ` +
+      refClause,
   };
 }
+
+const r1 = (n: number) => Math.round(n * 10) / 10;

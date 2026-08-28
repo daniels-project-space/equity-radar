@@ -7,10 +7,10 @@ import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { fetchUniverse, fetchQuarters, fetchProfile, fetchRecentFilings, fetchEarnings8Ks } from "./lib/sec";
 import { findEarningsRelease, extractFromRelease } from "./lib/earningsRelease";
-import { fetchDailyBars, fetchForwardEps } from "./lib/prices";
+import { fetchDailyBars, fetchForwardEps, fetchQuote } from "./lib/prices";
 import { deriveMetrics, derivePriceStats } from "./lib/metrics";
 import { score as computeScore } from "./lib/scoring";
-import { valuate, median } from "./lib/valuation";
+import { valuate, median, classifyArchetype } from "./lib/valuation";
 import { assessMoat } from "./lib/moat";
 import { detectDip } from "./lib/dip";
 import { featuresAt } from "./lib/signals";
@@ -303,6 +303,53 @@ async function doRefreshTicker(
   // the archetype the valuation picks.
   const bandSettings = await ctx.runQuery(internal.settings.effectiveBands, { ticker: t });
   const latestQ = quarters[0];
+
+  // The cash-flow method needs the moat, and the moat needs the archetype, so
+  // the archetype is settled first and the valuation runs last.
+  const { archetype } = classifyArchetype({
+    sicCode: universeRow?.sicCode,
+    epsTtm: metrics.epsTtm,
+    cryptoFairValue: latestQ?.cryptoFairValue,
+    longTermInvestments: latestQ?.longTermInvestments,
+    totalAssets: latestQ?.totalAssets,
+    revenueTtm: metrics.revenueTtm,
+  });
+
+  // ---- moat ---------------------------------------------------------
+  const moat = assessMoat({
+    archetype,
+    quarters,
+    grossMarginPct: metrics.grossMarginPct,
+    grossMarginDeltaYoY: metrics.grossMarginDeltaYoY,
+    opMarginPct: metrics.opMarginPct,
+    fcfMarginPct: metrics.fcfMarginPct,
+    fcfTtm: metrics.fcfTtm,
+    netIncomeTtm:
+      metrics.netMarginPct !== undefined && metrics.revenueTtm !== undefined
+        ? metrics.netMarginPct * metrics.revenueTtm
+        : undefined,
+    rndIntensityPct: metrics.rndIntensityPct,
+    sharesYoY: metrics.sharesYoY,
+    netDebtToEbitda: metrics.netDebtToEbitda,
+    netCash: metrics.netCash,
+    revYoY: metrics.revYoY,
+  });
+
+
+  // ---- what the price already assumes --------------------------------
+  const expectations = readExpectations({
+    marketCap: metrics.marketCap,
+    netCash: metrics.netCash,
+    fcfTtm: metrics.fcfTtm,
+    revenueTtm: metrics.revenueTtm,
+    revYoY: metrics.revYoY,
+    revYoYPrior: metrics.revYoYPrior,
+    guidedGrowth,
+    moatScore: moat.score,
+    netDebtToEbitda: metrics.netDebtToEbitda,
+  });
+
+  // ---- valuation ------------------------------------------------------
   const valuation = valuate({
     price: stats?.last,
     sicCode: universeRow?.sicCode,
@@ -323,6 +370,11 @@ async function doRefreshTicker(
     peerMedianFwdPe,
     peerMedianEvToSales,
     revGrowth: metrics.revYoY,
+    revGrowthPrior: metrics.revYoYPrior,
+    guidedGrowth,
+    moatScore: moat.score,
+    netDebtToEbitda: metrics.netDebtToEbitda,
+    expectationsVerdict: expectations?.verdict,
     grossMarginPct: metrics.grossMarginPct,
     ownMedianPe,
     ownPeSamples: ownPes.length,
@@ -330,26 +382,6 @@ async function doRefreshTicker(
   });
   if (valuation) await ctx.runMutation(internal.data.storeBands, { ticker: t, bands: valuation });
   else notes.push("valuation not computable — no share count");
-
-  // ---- moat ---------------------------------------------------------
-  const moat = assessMoat({
-    archetype: valuation?.archetype ?? "earnings",
-    quarters,
-    grossMarginPct: metrics.grossMarginPct,
-    grossMarginDeltaYoY: metrics.grossMarginDeltaYoY,
-    opMarginPct: metrics.opMarginPct,
-    fcfMarginPct: metrics.fcfMarginPct,
-    fcfTtm: metrics.fcfTtm,
-    netIncomeTtm:
-      metrics.netMarginPct !== undefined && metrics.revenueTtm !== undefined
-        ? metrics.netMarginPct * metrics.revenueTtm
-        : undefined,
-    rndIntensityPct: metrics.rndIntensityPct,
-    sharesYoY: metrics.sharesYoY,
-    netDebtToEbitda: metrics.netDebtToEbitda,
-    netCash: metrics.netCash,
-    revYoY: metrics.revYoY,
-  });
 
   await ctx.runMutation(internal.data.storeMetrics, {
     ticker: t,
@@ -364,18 +396,7 @@ async function doRefreshTicker(
       moatTrend: moat.direction,
       moatSummary: moat.summary,
       moatPillars: moat.pillars,
-      // What the price already assumes, read back out of it. Depends on the
-      // moat score, so it has to be computed after the moat.
-      expectations: readExpectations({
-        marketCap: metrics.marketCap,
-        netCash: metrics.netCash,
-        fcfTtm: metrics.fcfTtm,
-        revYoY: metrics.revYoY,
-        revYoYPrior: metrics.revYoYPrior,
-        guidedGrowth,
-        moatScore: moat.score,
-        netDebtToEbitda: metrics.netDebtToEbitda,
-      }) ?? undefined,
+      expectations: expectations ?? undefined,
       guidedGrowth,
       guidanceDelta,
       guidancePeriod: latestGuide?.periodLabel,
@@ -903,5 +924,41 @@ export const pollFilings = internalAction({
       await sleep(400);
     }
     return { checked: rows.length, fresh };
+  },
+});
+
+/**
+ * Intraday price refresh — quotes only, no SEC calls.
+ *
+ * Fundamentals move on filings, which is a daily-at-most event, but the price
+ * moves all session and every band read depends on it. This keeps the chart and
+ * the current-band label live without re-running an evaluation: it updates the
+ * price, the day's change and the current band, and nothing else.
+ *
+ * Keyless and deliberately light — a dozen or so symbols on a 12-minute cadence
+ * is a handful of requests a minute, and a failed quote leaves the previous
+ * price in place rather than blanking it.
+ */
+export const refreshQuotes = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ updated: number; skipped: number }> => {
+    const watch = await ctx.runQuery(internal.data.watchlistTickers, {});
+    let updated = 0;
+    let skipped = 0;
+
+    for (const w of watch) {
+      const q = await fetchQuote(w.ticker);
+      if (!q) {
+        skipped++;
+        continue;
+      }
+      await ctx.runMutation(internal.data.patchQuote, {
+        ticker: w.ticker,
+        last: q.last,
+        prevClose: q.prevClose,
+      });
+      updated++;
+    }
+    return { updated, skipped };
   },
 });

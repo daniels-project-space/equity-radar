@@ -6,6 +6,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { PriceChart } from "@/components/price-chart";
 import { Disclosure } from "@/components/disclosure";
+import { keyFacts, TONE_COLOR } from "@/lib/key-facts";
 import {
   usd,
   bigUsd,
@@ -61,6 +62,9 @@ export default function CompanyPage() {
   const methods = (b?.methods ?? []) as Method[];
   const verdict = s?.verdict ?? "—";
   const upside = b?.upside;
+  // Derived on every render rather than read from stored alert rows, so these
+  // lines cannot contradict the chart or outlive the model that wrote them.
+  const facts = keyFacts({ ticker, price: p, bands: b, metrics: m, score: s });
 
   async function doRefresh() {
     if (!data?.universe) return;
@@ -242,34 +246,29 @@ export default function CompanyPage() {
         />
       </Column>
 
-      {/* ---- open signals ---- */}
-      {data.alerts.filter((a) => !a.acknowledgedAt).length > 0 && (
-        <Column title="What's changed">
-          <div className="space-y-1.5">
-            {data.alerts
-              .filter((a) => !a.acknowledgedAt)
-              .slice(0, 6)
-              .map((a) => (
-                <div key={a._id} className="flex items-start gap-2">
-                  <span
-                    className="mt-[6px] h-1 w-1 shrink-0 rounded-full"
-                    style={{ background: SEVERITY_COLOR[a.severity as Severity] }}
-                  />
-                  <div className="min-w-0">
-                    <p className="text-[11px] leading-snug">
-                      {a.title.replace(`${ticker}: `, "").replace(`${ticker} `, "")}
-                    </p>
-                    <p className="text-[10px] leading-snug text-[var(--muted)]">{a.detail}</p>
-                  </div>
-                </div>
-              ))}
-          </div>
-        </Column>
+      {/* ---- the short version, computed live so it cannot go stale ---- */}
+      {facts.length > 0 && (
+        <section className="panel p-4">
+          <h2 className="mb-2.5 text-[11px] uppercase tracking-wider text-[var(--muted)]">
+            What matters now
+          </h2>
+          <ul className="space-y-2">
+            {facts.map((f, i) => (
+              <li key={i} className="flex items-start gap-2.5">
+                <span
+                  className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ background: TONE_COLOR[f.tone] }}
+                />
+                <p className="text-[12px] leading-relaxed">{f.text}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {/* ---- everything else, on request ---- */}
       <div className="panel px-4">
-        <Disclosure title="Valuation detail" hint={`${methods.length} methods`}>
+        <Disclosure title="Valuation detail" hint={`how the ${methods.length} methods combine`}>
           <table className="w-full text-[11px] tabular">
             <tbody>
               {[...bandList].reverse().map((band) => {
@@ -335,7 +334,7 @@ export default function CompanyPage() {
           </ul>
         </Disclosure>
 
-        <Disclosure title="All metrics">
+        <Disclosure title="All metrics" hint="every figure behind the summary">
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
             <Metric label="Revenue TTM" value={bigUsd(m?.revenueTtm)} />
             <Metric label="Revenue YoY" value={signedPct(m?.revYoY)} />
@@ -370,7 +369,7 @@ export default function CompanyPage() {
           )}
         </Disclosure>
 
-        <Disclosure title="Quarterly history" hint={`${data.quarters.length} quarters`}>
+        <Disclosure title="Quarterly history" hint={`${data.quarters.length} quarters as filed`}>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[520px] text-[11px] tabular">
               <thead className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
@@ -420,7 +419,7 @@ export default function CompanyPage() {
           </p>
         </Disclosure>
 
-        <Disclosure title="Score breakdown">
+        <Disclosure title="Score breakdown" hint="what each input contributed">
           {s ? (
             <div className="space-y-2">
               {(["growth", "quality", "valuation", "risk", "momentum"] as const).map((k) => (
@@ -437,7 +436,7 @@ export default function CompanyPage() {
           )}
         </Disclosure>
 
-        <Disclosure title="Evaluation history" hint={`${data.evaluations.length} runs`}>
+        <Disclosure title="Evaluation history" hint={`what the rating did over ${data.evaluations.length} runs`}>
           <ul className="space-y-1 text-[11px]">
             {data.evaluations.slice(0, 15).map((e) => (
               <li key={e._id} className="flex items-start justify-between gap-3">

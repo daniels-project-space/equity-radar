@@ -636,3 +636,41 @@ export const finishRun = internalMutation({
   args: { id: v.id("runs"), ok: v.boolean(), processed: v.optional(v.number()), error: v.optional(v.string()) },
   handler: async (ctx, { id, ...rest }) => ctx.db.patch(id, { ...rest, finishedAt: Date.now() }),
 });
+
+/**
+ * Updates only the live price fields, leaving every derived statistic alone.
+ *
+ * The current band is recomputed here because it is a pure function of price
+ * against stored bands — so the label stays honest between full evaluations
+ * without pretending the fundamentals were re-examined.
+ */
+export const patchQuote = internalMutation({
+  args: { ticker: v.string(), last: v.number(), prevClose: v.optional(v.number()) },
+  handler: async (ctx, { ticker, last, prevClose }) => {
+    const stats = await ctx.db
+      .query("price_stats")
+      .withIndex("by_ticker", (i) => i.eq("ticker", ticker))
+      .unique();
+    if (!stats) return;
+
+    await ctx.db.patch(stats._id, {
+      last,
+      prevClose: prevClose ?? stats.prevClose,
+      updatedAt: Date.now(),
+    });
+
+    const bands = await ctx.db
+      .query("buy_bands")
+      .withIndex("by_ticker", (i) => i.eq("ticker", ticker))
+      .unique();
+    if (!bands?.bands || !bands.fairValue) return;
+
+    const hit = (bands.bands as { label: string; priceLo: number; priceHi: number }[]).find(
+      (b) => last >= b.priceLo && last < b.priceHi
+    );
+    await ctx.db.patch(bands._id, {
+      currentBand: hit?.label ?? (last > 0 ? "Above range" : bands.currentBand),
+      upside: Math.round((bands.fairValue / last - 1) * 1000) / 10,
+    });
+  },
+});

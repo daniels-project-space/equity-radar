@@ -13,6 +13,8 @@
  * should widen the buy zone rather than be hidden behind a single number.
  */
 
+import { justifiedValue } from "./expectations";
+
 export type Archetype = "assetHolding" | "financial" | "reit" | "preProfit" | "earnings";
 
 export const ARCHETYPE_LABEL: Record<Archetype, string> = {
@@ -42,12 +44,19 @@ export type ValuationInput = {
   peerMedianEvToSales?: number;
   /** Growth and margin drive what multiple is *deserved*, not just observed. */
   revGrowth?: number;
+  revGrowthPrior?: number;
+  guidedGrowth?: number;
   grossMarginPct?: number;
+  /** Feeds the cash-flow method: caps justified growth and sets the horizon. */
+  moatScore?: number;
+  netDebtToEbitda?: number;
   /** Median P/E this company has actually traded at over its own history. */
   ownMedianPe?: number;
   ownPeSamples?: number;
   /** User anchor. Its meaning depends on archetype — P/E, EV/S or NAV premium. */
   anchorOverride?: number;
+  /** How demanding the price already is; widens the margin of safety. */
+  expectationsVerdict?: string;
 };
 
 export type Method = {
@@ -132,7 +141,19 @@ const WEIGHTS: Record<Archetype, Record<string, number>> = {
   financial: { bookValue: 0.5, epsMultiple: 0.5 },
   reit: { fcfYield: 0.6, bookValue: 0.4 },
   preProfit: { evSales: 0.7, bookValue: 0.3 },
-  earnings: { epsMultiple: 0.3, ownHistory: 0.25, evEbit: 0.2, fcfYield: 0.15, evSales: 0.1 },
+  // expectationsDcf carries real weight because it is the only method here that
+  // is not a multiple. Every other one anchors on a trailing ratio, so in a
+  // market where multiples have re-rated upward they all say "expensive"
+  // together and the blend has no way to tell a compounder from a melting ice
+  // cube. The cash-flow model disagrees with them when growth justifies it.
+  earnings: {
+    epsMultiple: 0.24,
+    expectationsDcf: 0.25,
+    ownHistory: 0.2,
+    evEbit: 0.16,
+    fcfYield: 0.1,
+    evSales: 0.05,
+  },
 };
 
 /**
@@ -161,6 +182,8 @@ function targets(i: ValuationInput) {
     navPremium: 1.2,
   };
 }
+
+export { classify as classifyArchetype };
 
 export function valuate(i: ValuationInput): Valuation | null {
   const shares = i.sharesDiluted;
@@ -243,12 +266,50 @@ export function valuate(i: ValuationInput): Valuation | null {
     );
   }
 
+  // Cash-flow methods are only as good as the cash-flow figure, and a TTM FCF
+  // that rounds to nothing against revenue is far more often a bad parse than a
+  // real result - Fabrinet came through at 0.09% of revenue, which produced a
+  // confident $27 fair-value component against a $422 price and dragged the
+  // blend down by a third. Below a floor the methods are skipped entirely, so
+  // the weight renormalises onto methods that did compute and the reduced
+  // coverage widens the margin of safety. Refusing to answer beats answering
+  // precisely and wrongly.
+  const fcfUsable =
+    i.fcfTtm !== undefined &&
+    i.fcfTtm > 0 &&
+    (!i.revenueTtm || i.revenueTtm <= 0 || i.fcfTtm / i.revenueTtm >= 0.01);
+  const usableFcf = fcfUsable ? i.fcfTtm : undefined;
+
+  // --- discounted cash flow at justified growth ---
+  // Growth the business has demonstrated, capped by moat, faded to terminal.
+  // See lib/expectations.ts for why this is not the same question as a multiple.
+  {
+    const jv = justifiedValue({
+      fcfTtm: usableFcf,
+      netCash,
+      shares,
+      revYoY: i.revGrowth,
+      revYoYPrior: i.revGrowthPrior,
+      guidedGrowth: i.guidedGrowth,
+      moatScore: i.moatScore,
+      netDebtToEbitda: i.netDebtToEbitda,
+    });
+    if (jv) {
+      add(
+        "expectationsDcf",
+        "Cash flows at earned growth",
+        jv.perShare,
+        `${(jv.growth * 100).toFixed(1)}% growth fading over ${jv.horizon}y at ${(jv.wacc * 100).toFixed(1)}%`
+      );
+    }
+  }
+
   // --- FCF yield ---
-  if (i.fcfTtm && i.fcfTtm > 0) {
+  if (usableFcf) {
     add(
       "fcfYield",
       "Free cash flow yield",
-      i.fcfTtm / DEFAULTS.fcfYield / shares,
+      usableFcf / DEFAULTS.fcfYield / shares,
       `${(DEFAULTS.fcfYield * 100).toFixed(0)}% yield on TTM FCF`
     );
   }
@@ -308,7 +369,23 @@ export function valuate(i: ValuationInput): Valuation | null {
 
   // Margin of safety widens with disagreement and with how few methods applied.
   const coverage = totalWeight; // 1.0 when every method for this archetype computed
-  const marginOfSafety = clamp(0.12 + dispersion * 0.35 + (1 - coverage) * 0.25, 0.1, 0.45);
+  // Margin of safety widens with disagreement, with how few methods applied,
+  // and with how much the price is already asking of the business. A price
+  // underwriting growth well beyond anything delivered needs more room to be
+  // wrong, independently of whether the methods happen to agree.
+  const expectationsPad =
+    i.expectationsVerdict === "heroic"
+      ? 0.08
+      : i.expectationsVerdict === "demanding"
+        ? 0.04
+        : i.expectationsVerdict === "undemanding"
+          ? -0.02
+          : 0;
+  const marginOfSafety = clamp(
+    0.12 + dispersion * 0.35 + (1 - coverage) * 0.25 + expectationsPad,
+    0.1,
+    0.45
+  );
 
   const confidence: Valuation["confidence"] =
     methods.length >= 3 && dispersion < 0.35 ? "high" : dispersion < 0.7 ? "medium" : "low";

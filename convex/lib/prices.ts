@@ -175,3 +175,51 @@ export async function fetchForwardEps(ticker: string): Promise<number | undefine
     return undefined;
   }
 }
+
+export type Quote = { last: number; prevClose?: number; asOf: number };
+
+/**
+ * Live-ish quote for one symbol, keyless.
+ *
+ * The daily-bar path only moves once a session, so between closes the whole app
+ * shows yesterday's price and every band read is stale. This uses the same
+ * unofficial Yahoo chart endpoint at a 1-minute interval and reads the meta
+ * block, which carries the current price and the previous close directly.
+ *
+ * Best-effort by design: it returns null rather than throwing, because a failed
+ * quote should leave the last good price in place, not break the page.
+ */
+export async function fetchQuote(ticker: string): Promise<Quote | null> {
+  try {
+    const url =
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}` +
+      `?range=1d&interval=1m`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; equity-radar/1.0)" },
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      chart?: {
+        result?: {
+          meta?: {
+            regularMarketPrice?: number;
+            chartPreviousClose?: number;
+            previousClose?: number;
+            regularMarketTime?: number;
+          };
+        }[];
+      };
+    };
+    const meta = json.chart?.result?.[0]?.meta;
+    const last = meta?.regularMarketPrice;
+    if (typeof last !== "number" || !Number.isFinite(last) || last <= 0) return null;
+    const prev = meta?.chartPreviousClose ?? meta?.previousClose;
+    return {
+      last,
+      prevClose: typeof prev === "number" && prev > 0 ? prev : undefined,
+      asOf: (meta?.regularMarketTime ?? Math.floor(Date.now() / 1000)) * 1000,
+    };
+  } catch {
+    return null;
+  }
+}
