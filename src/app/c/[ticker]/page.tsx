@@ -37,6 +37,7 @@ import {
   PeerTable,
   ExpectationsPanel,
   ReturnOutlook,
+  CyclePanel,
   type Method,
   type Pillar,
   type PeerRow,
@@ -233,9 +234,15 @@ export default function CompanyPage() {
 
       {/* ---- three answers, side by side ---- */}
       <div className="grid gap-3 lg:grid-cols-3">
-        <Column title="What it's worth">
-          <MethodBars methods={methods} price={p?.last} />
-          {m?.expectations && <ExpectationsPanel data={m.expectations} />}
+        <Column title={m?.assetType === "crypto" ? "Where it sits" : "What it's worth"}>
+          {m?.assetType === "crypto" && m?.cycle ? (
+            <CyclePanel data={m.cycle} price={p?.last} />
+          ) : (
+            <MethodBars methods={methods} price={p?.last} />
+          )}
+          {m?.assetType !== "crypto" && m?.expectations && (
+            <ExpectationsPanel data={m.expectations} />
+          )}
           {outlook && (
             <ReturnOutlook rows={outlook} price={p?.last} basis={m?.trajectory?.basis} />
           )}

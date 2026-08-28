@@ -526,3 +526,103 @@ export function ReturnOutlook({
     </section>
   );
 }
+
+export type CycleData = {
+  mvrvZ?: number;
+  nupl?: number;
+  sopr?: number;
+  realizedPrice?: number;
+  mvrvRatio?: number;
+  percentile?: number;
+  zone: string;
+  tsmsv?: number;
+  summary: string;
+  caveat: string;
+};
+
+const ZONE_COLOR: Record<string, string> = {
+  capitulation: "var(--good)",
+  accumulation: "var(--good)",
+  "mid-cycle": "var(--muted)",
+  extended: "var(--warn)",
+  euphoric: "var(--bad)",
+  unknown: "var(--muted)",
+};
+
+/**
+ * Where a crypto asset sits against what the network actually paid.
+ *
+ * This replaces the valuation panel rather than sitting beside it, because
+ * there is no cash flow to discount and pretending otherwise would be the
+ * whole error. The cost basis is the only anchor crypto has.
+ */
+export function CyclePanel({ data, price }: { data: CycleData; price?: number }) {
+  const pct = data.percentile;
+  return (
+    <section className="panel p-4">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          Cycle position
+        </h2>
+        <span
+          className="text-[10px] font-medium uppercase tracking-wider"
+          style={{ color: ZONE_COLOR[data.zone] ?? "var(--muted)" }}
+        >
+          {data.zone}
+        </span>
+      </div>
+
+      {pct !== undefined && (
+        <div className="mb-3">
+          <div className="relative h-5 overflow-hidden rounded-sm bg-[var(--line)]">
+            <div
+              className="absolute inset-y-0 left-0 opacity-30"
+              style={{ width: `${pct * 100}%`, background: ZONE_COLOR[data.zone] }}
+            />
+            <div
+              className="absolute inset-y-0 w-[2px]"
+              style={{ left: `${pct * 100}%`, background: ZONE_COLOR[data.zone] }}
+            />
+          </div>
+          <div className="mt-1 flex justify-between text-[9px] text-[var(--muted)]">
+            <span>capitulation</span>
+            <span>{Math.round(pct * 100)}th percentile of its own history</span>
+            <span>euphoria</span>
+          </div>
+        </div>
+      )}
+
+      <dl className="mb-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+        {data.realizedPrice !== undefined && (
+          <Row label="Network cost basis" value={usd(data.realizedPrice)} />
+        )}
+        {data.mvrvRatio !== undefined && (
+          <Row label="Price vs cost basis" value={`${data.mvrvRatio.toFixed(2)}x`} />
+        )}
+        {data.mvrvZ !== undefined && <Row label="MVRV Z-score" value={data.mvrvZ.toFixed(2)} />}
+        {data.nupl !== undefined && (
+          <Row label="Unrealised profit" value={`${(data.nupl * 100).toFixed(0)}%`} />
+        )}
+        {data.sopr !== undefined && <Row label="SOPR" value={data.sopr.toFixed(3)} />}
+        {data.tsmsv !== undefined && (
+          <Row label="Momentum / volatility" value={data.tsmsv.toFixed(2)} />
+        )}
+      </dl>
+
+      <p className="text-[11px] leading-relaxed text-[var(--muted)]">{data.summary}</p>
+
+      <p className="mt-2 border-t border-[var(--line)] pt-2 text-[10px] leading-relaxed" style={{ color: "var(--warn)" }}>
+        {data.caveat}
+      </p>
+    </section>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <dt className="text-[var(--muted)]">{label}</dt>
+      <dd className="tabular text-right">{value}</dd>
+    </>
+  );
+}

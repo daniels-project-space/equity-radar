@@ -238,6 +238,10 @@ export default defineSchema({
     trajectory: v.optional(v.any()),
     /** Piotroski/Novy-Marx/Sloan quality measures. See lib/quality.ts. */
     quality: v.optional(v.any()),
+    /** "equity" (default) or "crypto" — decides which model applies at all. */
+    assetType: v.optional(v.string()),
+    /** On-chain cycle position for crypto. See lib/crypto.ts. */
+    cycle: v.optional(v.any()),
     /** Annualised realised volatility, used to size the buy zones. */
     realisedVol: v.optional(v.number()),
     quartersAvailable: v.number(),

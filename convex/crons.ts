@@ -34,6 +34,15 @@ crons.cron("closing quote", "35 20 * * 1-5", internal.ingest.refreshQuotes, {});
 crons.cron("snapshot allocation", "10 6 * * 1-5", internal.strategyActions.snapshotAllocation, {});
 crons.cron("run strategy simulation", "25 6 * * 1-5", internal.strategyActions.runSimCron, {});
 
+/**
+ * Crypto refresh. On-chain series update once a day and the endpoint rate-limits
+ * hard, so this runs once rather than on the intraday cadence prices use.
+ */
+crons.cron("refresh crypto", "10 4 * * *", internal.cryptoActions.refreshCryptoCron, {});
+
+/** Ranks every entry rule against buy-and-hold across names and periods. */
+crons.cron("signal tournament", "55 2 * * 0", internal.strategyActions.tournamentCron, {});
+
 /** Re-measures what each dip state was actually worth, and re-tunes from it. */
 crons.cron("calibrate indicators", "40 2 * * 0", internal.strategyActions.calibrateCron, {});
 
