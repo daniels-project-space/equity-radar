@@ -16,6 +16,7 @@ import { detectDip } from "./lib/dip";
 import { featuresAt } from "./lib/signals";
 import { readExpectations } from "./lib/expectations";
 import { readTrajectory } from "./lib/trajectory";
+import { readQuality } from "./lib/quality";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fmt = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "n/a");
@@ -339,6 +340,7 @@ async function doRefreshTicker(
 
   // ---- growth as the filings show it ---------------------------------
   const trajectory = readTrajectory(quarters);
+  const quality = readQuality(quarters);
 
   // Realised volatility, annualised, from the stored daily closes. Feeds band
   // width so a zone means the same thing on a quiet name and a violent one.
@@ -421,6 +423,7 @@ async function doRefreshTicker(
       moatPillars: moat.pillars,
       expectations: expectations ?? undefined,
       trajectory: trajectory ?? undefined,
+      quality: quality ?? undefined,
       realisedVol,
       guidedGrowth,
       guidanceDelta,

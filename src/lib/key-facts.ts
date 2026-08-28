@@ -61,6 +61,12 @@ type Input = {
       referenceGrowth?: number;
       verdict?: string;
     };
+    quality?: {
+      grossProfitability?: number;
+      accruals?: number;
+      fScore?: number;
+      fScoreMax?: number;
+    };
   };
   score?: { verdict?: string };
 };
@@ -216,6 +222,33 @@ export function keyFacts(d: Input): Fact[] {
       tone: "warn",
       weight: 58,
       text: `Net debt is ${m.netDebtToEbitda.toFixed(1)}x earnings before interest and tax — enough that a weak year gets uncomfortable.`,
+    });
+  }
+
+  // 8b. Quality, on the measures with the strongest published record.
+  const q = m?.quality;
+  if (q?.grossProfitability !== undefined) {
+    const gp = q.grossProfitability;
+    const strong = gp >= 0.33;
+    const weak = gp < 0.15;
+    if (strong || weak) {
+      out.push({
+        tone: strong ? "good" : "warn",
+        weight: 66,
+        text:
+          `Gross profit is ${(gp * 100).toFixed(0)}% of assets, which is ${strong ? "strong" : "thin"} ` +
+          `on the measure that has predicted returns about as well as cheapness itself` +
+          (q.fScore !== undefined ? `, and ${q.fScore} of ${q.fScoreMax} fundamental checks pass.` : "."),
+      });
+    }
+  }
+  if (q?.accruals !== undefined && q.accruals > 0.05) {
+    out.push({
+      tone: "warn",
+      weight: 64,
+      text:
+        `Reported earnings sit ${(q.accruals * 100).toFixed(0)}% of assets above the cash actually ` +
+        `collected. Profits leaning on accounting rather than cash have historically been followed by weaker returns.`,
     });
   }
 

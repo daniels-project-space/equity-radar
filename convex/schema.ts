@@ -236,6 +236,8 @@ export default defineSchema({
     expectations: v.optional(v.any()),
     /** Multi-year growth read from filed quarters. See lib/trajectory.ts. */
     trajectory: v.optional(v.any()),
+    /** Piotroski/Novy-Marx/Sloan quality measures. See lib/quality.ts. */
+    quality: v.optional(v.any()),
     /** Annualised realised volatility, used to size the buy zones. */
     realisedVol: v.optional(v.number()),
     quartersAvailable: v.number(),

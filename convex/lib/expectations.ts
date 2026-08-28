@@ -99,10 +99,15 @@ function solveInitialGrowth(
  */
 export function horizonFor(moatScore?: number): number {
   const m = moatScore ?? 40;
-  if (m >= 75) return 12;
-  if (m >= 55) return 10;
-  if (m >= 35) return 8;
-  return 6;
+  // Shortened across the board. A twelve-year explicit forecast implies the
+  // model can see excess returns that far out, and Chan, Karceski and
+  // Lakonishok found ten-year above-median earnings runs occurring in 0.2% of
+  // cases against 0.1% expected by chance. The horizon should not outrun what
+  // anyone has been able to forecast.
+  if (m >= 75) return 9;
+  if (m >= 55) return 8;
+  if (m >= 35) return 7;
+  return 5;
 }
 
 /** Riskier balance sheets and thinner moats deserve a higher hurdle. */
@@ -152,10 +157,34 @@ export function justifiedGrowthRate(input: {
   }
   if (base === undefined) return undefined;
 
+  // The cap used to be 35% for a wide moat, held over a twelve-year fade. That
+  // was a guess, and the evidence says it was roughly a 99th-percentile
+  // assumption applied to any good business.
+  //
+  // Chan, Karceski and Lakonishok ("The Level and Persistence of Growth Rates",
+  // Journal of Finance 2003) measured this across the full cross section: only
+  // about 10% of firms grow faster than 18% a year over ten years, the median
+  // firm grows at roughly the rate of GDP, and — the part that matters most
+  // here — there is no persistence in long-term earnings growth beyond chance.
+  // Firms posting five consecutive above-median years occur at 3.0% against
+  // 3.1% expected from luck alone.
+  //
+  // So the ceiling is now anchored to that documented 90th percentile rather
+  // than to optimism, and moat moves it within a narrow band instead of setting
+  // it outright. A wide moat buys a little more runway; it does not buy a
+  // different distribution.
   const m = input.moatScore ?? 40;
-  const cap = m >= 75 ? 0.35 : m >= 55 ? 0.28 : m >= 35 ? 0.2 : 0.12;
+  const cap = m >= 75 ? 0.18 : m >= 55 ? 0.14 : m >= 35 ? 0.1 : 0.06;
+
+  // One further haircut. CKL found persistence in *sales* growth but showed it
+  // does not carry through to the bottom line — competition dissipates the
+  // margin before it reaches an owner. The estimate here is built from revenue,
+  // so converting it to a cash-flow assumption at par would import exactly the
+  // optimism they documented.
+  const bottomLineHaircut = 0.8;
+
   // Never extrapolate acceleration, and never below a modest decline.
-  return Math.max(-0.05, Math.min(base, cap));
+  return Math.max(-0.05, Math.min(base * bottomLineHaircut, cap));
 }
 
 /**

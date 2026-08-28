@@ -24,6 +24,7 @@ import type * as lib_llm from "../lib/llm.js";
 import type * as lib_metrics from "../lib/metrics.js";
 import type * as lib_moat from "../lib/moat.js";
 import type * as lib_prices from "../lib/prices.js";
+import type * as lib_quality from "../lib/quality.js";
 import type * as lib_regime from "../lib/regime.js";
 import type * as lib_rules from "../lib/rules.js";
 import type * as lib_scoring from "../lib/scoring.js";
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   "lib/metrics": typeof lib_metrics;
   "lib/moat": typeof lib_moat;
   "lib/prices": typeof lib_prices;
+  "lib/quality": typeof lib_quality;
   "lib/regime": typeof lib_regime;
   "lib/rules": typeof lib_rules;
   "lib/scoring": typeof lib_scoring;
