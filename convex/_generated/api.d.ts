@@ -19,6 +19,7 @@ import type * as journal from "../journal.js";
 import type * as lib_allocator from "../lib/allocator.js";
 import type * as lib_calibrate from "../lib/calibrate.js";
 import type * as lib_crypto from "../lib/crypto.js";
+import type * as lib_cryptoCalibrate from "../lib/cryptoCalibrate.js";
 import type * as lib_dip from "../lib/dip.js";
 import type * as lib_earningsRelease from "../lib/earningsRelease.js";
 import type * as lib_expectations from "../lib/expectations.js";
@@ -61,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   "lib/allocator": typeof lib_allocator;
   "lib/calibrate": typeof lib_calibrate;
   "lib/crypto": typeof lib_crypto;
+  "lib/cryptoCalibrate": typeof lib_cryptoCalibrate;
   "lib/dip": typeof lib_dip;
   "lib/earningsRelease": typeof lib_earningsRelease;
   "lib/expectations": typeof lib_expectations;

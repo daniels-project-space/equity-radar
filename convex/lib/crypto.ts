@@ -60,12 +60,14 @@ const UA = { "User-Agent": "equity-radar/1.0 (research)" };
  * these series only change once a day, retrying slowly costs nothing and
  * hammering costs access.
  */
-async function politeJson<T>(url: string, tries = 3): Promise<T | null> {
+async function politeJson<T>(url: string, tries = 5): Promise<T | null> {
   for (let attempt = 0; attempt < tries; attempt++) {
     try {
       const res = await fetch(url, { headers: UA });
       if (res.status === 429) {
-        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        // Exponential rather than linear: this endpoint's limit is measured in
+        // minutes, not seconds, and a few short retries just burn the budget.
+        await new Promise((r) => setTimeout(r, Math.min(30000, 3000 * 2 ** attempt)));
         continue;
       }
       if (!res.ok) return null;
@@ -132,6 +134,9 @@ export async function fetchOnChain(): Promise<CryptoSeries | null> {
   const out: CryptoSeries = { mvrvZ: [], nupl: [], sopr: [], realizedPrice: [] };
 
   for (const e of endpoints) {
+    // Spaced deliberately. Four rapid requests is enough to trip the limit, and
+    // once tripped every subsequent series fails too.
+    await new Promise((r) => setTimeout(r, 1500));
     const rows = await politeJson<Record<string, string>[]>(`https://bitcoin-data.com/v1/${e.ep}`);
     if (!Array.isArray(rows)) continue;
     out[e.key] = rows
@@ -154,6 +159,8 @@ export type CyclePosition = {
   zone: "capitulation" | "accumulation" | "mid-cycle" | "extended" | "euphoric" | "unknown";
   /** Volatility-scaled time-series momentum — the one with OOS support. */
   tsmsv?: number;
+  /** False when only price was available, so the cost-basis fields are absent. */
+  hasOnChain: boolean;
   summary: string;
   caveat: string;
 };
@@ -191,6 +198,16 @@ function vol(closes: number[]): number | undefined {
   return Math.sqrt(v) * Math.sqrt(365);
 }
 
+/**
+ * Cycle read that degrades honestly.
+ *
+ * Only Bitcoin has free on-chain history, so every other asset arrives here
+ * with empty series. The earlier version simply produced nothing for those,
+ * which left an asset stored with bars and no model at all — a page with a
+ * chart and blank panels. Price-derived measures are computed for everything,
+ * the cost-basis measures are omitted rather than faked, and the summary says
+ * which of the two you are looking at.
+ */
 export function readCycle(series: CryptoSeries, closes: number[]): CyclePosition {
   const last = <T extends OnChainPoint>(xs: T[]) => (xs.length ? xs[xs.length - 1] : undefined);
 
@@ -242,6 +259,15 @@ export function readCycle(series: CryptoSeries, closes: number[]): CyclePosition
     bits.push("coins are moving at a loss on average, which has marked capitulation historically");
   }
 
+  const hasOnChain = z !== undefined || realizedPrice !== undefined;
+
+  if (tsmsv !== undefined) {
+    bits.push(
+      `volatility-scaled momentum ${tsmsv.toFixed(2)}` +
+        (tsmsv > 0.3 ? " — positive, the one measure with out-of-sample support" : tsmsv < -0.3 ? " — negative" : " — flat")
+    );
+  }
+
   return {
     mvrvZ: z,
     nupl,
@@ -251,8 +277,15 @@ export function readCycle(series: CryptoSeries, closes: number[]): CyclePosition
     percentile: percentile === undefined ? undefined : Math.round(percentile * 100) / 100,
     zone,
     tsmsv: tsmsv === undefined ? undefined : Math.round(tsmsv * 100) / 100,
-    summary: bits.length ? bits.join("; ") + "." : "No on-chain data available for this asset.",
-    caveat: CAVEAT,
+    hasOnChain,
+    summary: bits.length
+      ? bits.join("; ") + "."
+      : "Not enough history yet to say anything about where this sits.",
+    caveat: hasOnChain
+      ? CAVEAT
+      : "No free on-chain data exists for this asset, so there is no cost-basis anchor and no cycle " +
+        "position — only price-derived measures. The zones shown for Bitcoin are deliberately absent " +
+        "here rather than approximated from price, which would be a valuation with nothing behind it.",
   };
 }
 

@@ -223,6 +223,67 @@ export const storeTournament = internalMutation({
   },
 });
 
+/**
+ * Cache for the on-chain series.
+ *
+ * These update once a day and the endpoint rate-limits hard — refetching them
+ * on every calibration run exhausted the limit and silently dropped signals
+ * from the test. They are fetched on the daily refresh and read from here
+ * afterwards, so an analysis run costs no network at all.
+ */
+export const storeOnChain = internalMutation({
+  args: { asset: v.string(), series: v.any() },
+  handler: async (ctx, { asset, series }) => {
+    const key = `onchain:${asset}`;
+    const existing = await ctx.db
+      .query("simulations")
+      .withIndex("by_key", (i) => i.eq("key", key))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, { result: series, computedAt: Date.now() });
+      return;
+    }
+    await ctx.db.insert("simulations", { key, result: series, computedAt: Date.now() });
+  },
+});
+
+export const onChainSeries = internalQuery({
+  args: { asset: v.string() },
+  handler: async (ctx, { asset }) => {
+    const row = await ctx.db
+      .query("simulations")
+      .withIndex("by_key", (i) => i.eq("key", `onchain:${asset}`))
+      .unique();
+    return row ? { series: row.result, computedAt: row.computedAt } : null;
+  },
+});
+
+export const storeCryptoCalibration = internalMutation({
+  args: { result: v.any() },
+  handler: async (ctx, { result }) => {
+    const existing = await ctx.db
+      .query("simulations")
+      .withIndex("by_key", (i) => i.eq("key", "cryptoCalibration"))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, { result, computedAt: Date.now() });
+      return;
+    }
+    await ctx.db.insert("simulations", { key: "cryptoCalibration", result, computedAt: Date.now() });
+  },
+});
+
+export const cryptoCalibration = query({
+  args: {},
+  handler: async (ctx) => {
+    const row = await ctx.db
+      .query("simulations")
+      .withIndex("by_key", (i) => i.eq("key", "cryptoCalibration"))
+      .unique();
+    return row ? { result: row.result, computedAt: row.computedAt } : null;
+  },
+});
+
 export const tournament = query({
   args: {},
   handler: async (ctx) => {

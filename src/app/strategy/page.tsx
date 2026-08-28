@@ -341,6 +341,154 @@ function TournamentPanel() {
   );
 }
 
+
+type CryptoBucket = {
+  bucket: string;
+  n: number;
+  effectiveN: number;
+  medianFwd: number;
+  hitRate: number;
+  edge: number;
+  tStat: number;
+  significant: boolean;
+};
+
+type CryptoCalib = {
+  signals: {
+    signal: string;
+    buckets: CryptoBucket[];
+    spread: number;
+    maxAbsT: number;
+    years: number;
+    cycles: number;
+    thin: boolean;
+    useful: boolean;
+    note: string;
+  }[];
+  missing: string[];
+  baseline: number;
+  horizonDays: number;
+  observations: number;
+  testsRun: number;
+  criticalT: number;
+  inconclusive: boolean;
+  method: string;
+};
+
+const CRYPTO_SIGNAL_LABEL: Record<string, string> = {
+  tsmsv: "Momentum / volatility",
+  mvrvZ: "MVRV Z-score",
+  nupl: "Net unrealised profit",
+  sopr: "Spent output profit ratio",
+};
+
+/**
+ * Crypto signals under the same discipline as the equity ones.
+ *
+ * The point of this panel is the gap between the two n columns. Raw counts run
+ * into the hundreds; once overlapping forward windows are discounted they fall
+ * to single digits, which is what turns an apparently decisive spread into
+ * something that cannot be told from noise.
+ */
+function CryptoCalibrationPanel() {
+  const c = useQuery(api.allocation.cryptoCalibration);
+  const r = c?.result as CryptoCalib | undefined;
+  if (!r?.signals?.length) return null;
+
+  return (
+    <section className="panel p-4">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          Crypto signal calibration
+        </h2>
+        <span className="text-[10px] text-[var(--muted)]">
+          {r.observations} readings · {r.horizonDays}d forward · baseline {r.baseline}%
+        </span>
+      </div>
+
+      <div className="space-y-3">
+        {r.signals.map((s) => (
+          <div key={s.signal}>
+            <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-[11px]">
+                {CRYPTO_SIGNAL_LABEL[s.signal] ?? s.signal}
+                {s.thin && (
+                  <span className="ml-2 text-[9px] uppercase tracking-wide text-[var(--warn)]">
+                    too thin to test
+                  </span>
+                )}
+              </span>
+              <span className="tabular text-[10px] text-[var(--muted)]">
+                spread {s.spread}pp · max |t| {s.maxAbsT} · {s.years}y ({s.cycles} cycles)
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[380px] text-[11px] tabular">
+                <thead className="text-[9px] uppercase tracking-wider text-[var(--muted)]">
+                  <tr>
+                    <th className="py-1 text-left font-medium">Bucket</th>
+                    <th className="py-1 text-right font-medium">N</th>
+                    <th className="py-1 text-right font-medium">Ind.</th>
+                    <th className="py-1 text-right font-medium">Fwd</th>
+                    <th className="py-1 text-right font-medium">Hit</th>
+                    <th className="py-1 text-right font-medium">Edge</th>
+                    <th className="py-1 text-right font-medium">t</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.buckets.map((b) => (
+                    <tr key={b.bucket} className="border-t border-[var(--line)]">
+                      <td className="py-1">{b.bucket}</td>
+                      <td className="py-1 text-right text-[var(--muted)]">{b.n}</td>
+                      <td
+                        className="py-1 text-right"
+                        style={{ color: b.effectiveN < 15 ? "var(--warn)" : "var(--muted)" }}
+                      >
+                        {b.effectiveN}
+                      </td>
+                      <td className="py-1 text-right">{b.medianFwd}%</td>
+                      <td className="py-1 text-right text-[var(--muted)]">{b.hitRate}%</td>
+                      <td
+                        className="py-1 text-right"
+                        style={{ color: b.edge >= 0 ? "var(--good)" : "var(--bad)" }}
+                      >
+                        {b.edge >= 0 ? "+" : ""}
+                        {b.edge}pp
+                      </td>
+                      <td
+                        className="py-1 text-right"
+                        style={{ color: b.significant ? "var(--fg)" : "var(--muted)" }}
+                      >
+                        {b.tStat}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-1 text-[10px] leading-relaxed text-[var(--muted)]">{s.note}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 space-y-2 border-t border-[var(--line)] pt-2 text-[10px] leading-relaxed">
+        <p style={{ color: r.inconclusive ? "var(--warn)" : "var(--muted)" }}>
+          {r.inconclusive
+            ? `Nothing clears |t| = ${r.criticalT}. Compare the N and Ind. columns: hundreds of readings collapse to single digits once overlapping 90-day windows are discounted, and a 30pp spread on eight independent observations is not evidence. These describe the history; they do not forecast.`
+            : `Signals above |t| = ${r.criticalT} carry measured weight.`}
+        </p>
+        {r.missing.length > 0 && (
+          <p style={{ color: "var(--warn)" }}>
+            {r.missing.join(", ")} did not load — still counted toward the significance bar, so a
+            failed fetch cannot quietly make the remaining signals easier to pass.
+          </p>
+        )}
+        <p className="text-[9px] text-[var(--muted)]">{r.method}</p>
+      </div>
+    </section>
+  );
+}
+
 export default function StrategyPage() {
   const sim = useQuery(api.allocation.latestSimulation);
   const history = useQuery(api.allocation.history, { limit: 14 });
@@ -486,6 +634,8 @@ export default function StrategyPage() {
       </section>
 
       <TournamentPanel />
+
+      <CryptoCalibrationPanel />
 
       <CalibrationPanel />
 

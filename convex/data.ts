@@ -674,3 +674,43 @@ export const patchQuote = internalMutation({
     });
   },
 });
+
+/**
+ * Removes duplicate daily bars for a ticker, keeping one row per date.
+ *
+ * Needed because the crypto ingest was inserting without a dedupe set, so a
+ * repeated refresh appended the whole series again. Dates are the natural key
+ * here — two rows for one day is always corruption, never legitimate.
+ */
+export const dedupeBars = internalMutation({
+  args: { ticker: v.string(), cursor: v.optional(v.string()), batch: v.optional(v.number()) },
+  handler: async (ctx, { ticker, cursor, batch = 1200 }) => {
+    // Convex caps reads at 4096 per call, and a duplicated ten-year history is
+    // well past that, so this walks the series in date order a page at a time
+    // and returns where to resume.
+    const page = await ctx.db
+      .query("prices_daily")
+      .withIndex("by_ticker_date", (i) =>
+        cursor ? i.eq("ticker", ticker).gt("date", cursor) : i.eq("ticker", ticker)
+      )
+      .order("asc")
+      .take(batch);
+
+    if (page.length === 0) return { done: true, removed: 0, next: null, scanned: 0 };
+
+    const seen = new Set<string>();
+    let removed = 0;
+    for (const r of page) {
+      if (seen.has(r.date)) {
+        await ctx.db.delete(r._id);
+        removed++;
+      } else {
+        seen.add(r.date);
+      }
+    }
+    // Resume from the last date seen. Rows sharing that date are handled on the
+    // next page because duplicates sort adjacently, so no run is split.
+    const last = page[page.length - 1].date;
+    return { done: page.length < batch, removed, next: last, scanned: page.length };
+  },
+});
