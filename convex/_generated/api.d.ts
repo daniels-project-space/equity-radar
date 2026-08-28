@@ -25,6 +25,7 @@ import type * as lib_metrics from "../lib/metrics.js";
 import type * as lib_moat from "../lib/moat.js";
 import type * as lib_prices from "../lib/prices.js";
 import type * as lib_regime from "../lib/regime.js";
+import type * as lib_rules from "../lib/rules.js";
 import type * as lib_scoring from "../lib/scoring.js";
 import type * as lib_sec from "../lib/sec.js";
 import type * as lib_signals from "../lib/signals.js";
@@ -61,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   "lib/moat": typeof lib_moat;
   "lib/prices": typeof lib_prices;
   "lib/regime": typeof lib_regime;
+  "lib/rules": typeof lib_rules;
   "lib/scoring": typeof lib_scoring;
   "lib/sec": typeof lib_sec;
   "lib/signals": typeof lib_signals;

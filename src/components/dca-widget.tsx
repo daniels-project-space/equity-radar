@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
-import { DIP_LABEL, DIP_COLOR } from "@/lib/dip-labels";
 
 const PALETTE = ["#38bdf8", "#34d399", "#a78bfa", "#fbbf24", "#f472b6", "#22d3ee"];
 const CASH = "#334155";
@@ -140,13 +139,23 @@ export function DcaWidget() {
                     <Link href={`/c/${s.ticker}`} className="font-medium hover:underline">
                       {s.ticker}
                     </Link>
-                    {s.dipState && s.dipState !== "none" && s.dipState !== "noVolume" && (
+                    {s.dipState === "falling" && (
                       <span
                         className="text-[9px]"
-                        style={{ color: DIP_COLOR[s.dipState] }}
-                        title={`Dip read: ${DIP_LABEL[s.dipState]}`}
+                        style={{ color: "var(--warn)" }}
+                        title="Attractively priced, but the selling has not stopped — you would be buying into a decline."
                       >
-                        {DIP_LABEL[s.dipState]}
+                        still falling
+                      </span>
+                    )}
+                    {s.dipState === "stabilising" && (
+                      <span className="text-[9px]" style={{ color: "var(--good)" }} title="Selling pressure fading.">
+                        selling easing
+                      </span>
+                    )}
+                    {s.dipState === "reversing" && (
+                      <span className="text-[9px]" style={{ color: "var(--good)" }} title="Turning up off the low.">
+                        turning up
                       </span>
                     )}
                   </span>
@@ -187,9 +196,10 @@ export function DcaWidget() {
       )}
 
       <p className="mt-2 text-[9px] leading-snug text-[var(--muted)]">
-        Gates on verdict, upside, asymmetry and moat, then weights by conviction with a 40% cap per
-        name. Anything a cap sheds stays in cash rather than being pushed into a weaker idea.
-      </p>
+        Two decisions, kept apart. The market sets how much to deploy — never zero, because
+        refusing to invest while valuations drift upward for years is itself an expensive call.
+        The split between names is relative: being expensive costs a name its rank, it does not
+        disqualify it. 40% cap per name.</p>
     </section>
   );
 }

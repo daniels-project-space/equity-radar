@@ -7,6 +7,7 @@ import { api } from "@convex/_generated/api";
 import { PriceChart } from "@/components/price-chart";
 import { Disclosure } from "@/components/disclosure";
 import { keyFacts, TONE_COLOR } from "@/lib/key-facts";
+import { signalLabel } from "@/lib/signal-label";
 import {
   usd,
   bigUsd,
@@ -65,6 +66,7 @@ export default function CompanyPage() {
   // Derived on every render rather than read from stored alert rows, so these
   // lines cannot contradict the chart or outlive the model that wrote them.
   const facts = keyFacts({ ticker, price: p, bands: b, metrics: m, score: s });
+  const sig = signalLabel(s?.verdict, p?.dipState, p?.dipScore);
 
   async function doRefresh() {
     if (!data?.universe) return;
@@ -101,7 +103,12 @@ export default function CompanyPage() {
               </>
             )}
             <span className="text-[var(--muted)]"> · </span>
-            <span style={{ color: VERDICT_COLOR[verdict] }}>{verdict.replace(/_/g, " ")}</span>
+            <span
+              style={{ color: sig.fallingKnife ? "var(--warn)" : VERDICT_COLOR[verdict] }}
+              title={sig.hint}
+            >
+              {sig.headline}
+            </span>
           </p>
 
           <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">

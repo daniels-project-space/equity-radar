@@ -7,6 +7,7 @@ import { simulate, type SimAsset } from "./lib/simulate";
 import { allocate } from "./lib/allocator";
 import { fetchCiksBySic } from "./lib/sec";
 import { calibrate } from "./lib/calibrate";
+import { backtest, buildCtx, combinations, type RuleResult } from "./lib/rules";
 
 /* ------------------------------------------------------------------ */
 /* Rule simulation                                                     */
@@ -153,5 +154,162 @@ export const discoverPeers = internalAction({
       error: notes.length ? notes.join(" | ").slice(0, 800) : undefined,
     });
     return { considered: targets.length, ingested, notes };
+  },
+});
+
+/* ------------------------------------------------------------------ */
+/* Entry-rule search                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Searches condition combinations for a better entry rule on one name.
+ *
+ * The honest part is the split. Rules are ranked on the first 65% of history
+ * and then re-run, untouched, on the last 35% that played no part in choosing
+ * them. Searching ~130 combinations on a single price series will always
+ * produce something that looks excellent in-sample; the only question worth
+ * reporting is whether the winner still works on data it did not get to see.
+ */
+export const searchRules = action({
+  args: { ticker: v.string(), maxSize: v.optional(v.number()) },
+  handler: async (
+    ctx,
+    { ticker, maxSize }
+  ): Promise<{
+    ticker: string;
+    bars: number;
+    tested: number;
+    splitDate: string;
+    inSample: RuleResult[];
+    outOfSample: (RuleResult & { inSampleRank: number })[];
+    baseline: { inSample: RuleResult | null; outOfSample: RuleResult | null };
+  }> => {
+    const bars = await ctx.runQuery(internal.data.fullBarsFor, { ticker, limit: 5000 });
+    if (bars.length < 600) throw new Error(`${ticker}: only ${bars.length} bars, need 600+`);
+
+    const split = Math.floor(bars.length * 0.65);
+    const early = bars.slice(0, split);
+    const late = bars.slice(Math.max(0, split - 210)); // 210 bars of warm-up for the 200 EMA
+
+    const ctxEarly = buildCtx(early);
+    const ctxLate = buildCtx(late);
+
+    const combos = combinations(maxSize ?? 3);
+    const scored = combos
+      .map((keys) => backtest(early, ctxEarly, keys))
+      .filter((r): r is RuleResult => r !== null && r.trades >= 3)
+      .sort((a, b) => b.edgePct - a.edgePct);
+
+    const top = scored.slice(0, 8);
+    const outOfSample = top
+      .map((r, idx) => {
+        const oos = backtest(late, ctxLate, r.keys, { start: 210 });
+        return oos ? { ...oos, inSampleRank: idx + 1 } : null;
+      })
+      .filter((r): r is RuleResult & { inSampleRank: number } => r !== null);
+
+    // The rule the question started from, as the thing to beat.
+    const baseline = {
+      inSample: backtest(early, ctxEarly, ["trendUp"]),
+      outOfSample: backtest(late, ctxLate, ["trendUp"], { start: 210 }),
+    };
+
+    return {
+      ticker,
+      bars: bars.length,
+      tested: scored.length,
+      splitDate: bars[split]?.date ?? "",
+      inSample: top,
+      outOfSample,
+      baseline,
+    };
+  },
+});
+
+/**
+ * The same search across every tracked name.
+ *
+ * One stock cannot settle this. A rule chosen on a single price series is
+ * chosen partly on that series' accidents, and Netflix in particular spans one
+ * long advance and one drawdown — which is exactly the shape that makes an
+ * exposure-reducing rule look brilliant or terrible depending on where the
+ * window is cut. Aggregating across names, and reporting in- and out-of-sample
+ * separately, is the difference between a finding and a story.
+ */
+export const searchRulesAll = action({
+  args: { maxSize: v.optional(v.number()) },
+  handler: async (
+    ctx,
+    { maxSize }
+  ): Promise<{
+    names: number;
+    rules: {
+      keys: string[];
+      label: string;
+      names: number;
+      medianEdgeIn: number;
+      medianEdgeOut: number;
+      winsIn: number;
+      winsOut: number;
+      medianExposure: number;
+      consistent: boolean;
+    }[];
+  }> => {
+    const watch = await ctx.runQuery(internal.data.watchlistTickers, {});
+    const combos = combinations(maxSize ?? 2);
+    const acc = new Map<string, { label: string; ins: number[]; outs: number[]; expo: number[] }>();
+    let names = 0;
+
+    for (const w of watch) {
+      const bars = await ctx.runQuery(internal.data.fullBarsFor, { ticker: w.ticker, limit: 5000 });
+      if (bars.length < 600) continue;
+      names++;
+      const split = Math.floor(bars.length * 0.65);
+      const early = bars.slice(0, split);
+      const late = bars.slice(Math.max(0, split - 210));
+      const ce = buildCtx(early);
+      const cl = buildCtx(late);
+
+      for (const keys of combos) {
+        const a = backtest(early, ce, keys);
+        const b = backtest(late, cl, keys, { start: 210 });
+        if (!a || !b || a.trades < 2) continue;
+        const k = keys.join("+");
+        if (!acc.has(k)) acc.set(k, { label: a.label, ins: [], outs: [], expo: [] });
+        const e = acc.get(k)!;
+        e.ins.push(a.edgePct);
+        e.outs.push(b.edgePct);
+        e.expo.push(b.exposure);
+      }
+    }
+
+    const med = (xs: number[]) => {
+      if (!xs.length) return 0;
+      const s = [...xs].sort((x, y) => x - y);
+      return Math.round(s[Math.floor(s.length / 2)] * 10) / 10;
+    };
+    const share = (xs: number[]) =>
+      xs.length ? Math.round((xs.filter((x) => x > 0).length / xs.length) * 100) : 0;
+
+    const rules = [...acc.entries()]
+      .map(([k, e]) => {
+        const medianEdgeIn = med(e.ins);
+        const medianEdgeOut = med(e.outs);
+        return {
+          keys: k.split("+"),
+          label: e.label,
+          names: e.ins.length,
+          medianEdgeIn,
+          medianEdgeOut,
+          winsIn: share(e.ins),
+          winsOut: share(e.outs),
+          medianExposure: med(e.expo),
+          // The only bar worth clearing: helps in both halves, on most names.
+          consistent: medianEdgeIn > 0 && medianEdgeOut > 0 && share(e.ins) >= 60 && share(e.outs) >= 60,
+        };
+      })
+      .sort((a, b) => b.medianEdgeOut - a.medianEdgeOut);
+
+    return { names, rules };
   },
 });

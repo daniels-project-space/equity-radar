@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import { useMutation } from "convex/react";
+import { api } from "@convex/_generated/api";
+import { X } from "lucide-react";
 import { Sparkline } from "./sparkline";
 import { usd, signedPct, num, ACTION_COLOR, VERDICT_COLOR, scoreColor, isStale } from "@/lib/format";
 import { SEVERITY_COLOR, type Severity } from "@/lib/notify";
-import { DIP_LABEL, DIP_COLOR } from "@/lib/dip-labels";
+import { signalLabel } from "@/lib/signal-label";
 
 export type CardAlert = { _id: string; type: string; severity: Severity; title: string };
 
@@ -53,12 +57,49 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
       ? "var(--bad)"
       : "var(--muted)";
   const verdict = row.score?.verdict ?? "—";
+  const sig = signalLabel(row.score?.verdict, p?.dipState, p?.dipScore);
+  const [confirming, setConfirming] = useState(false);
+  const remove = useMutation(api.watchlist.remove);
 
   // The card is the alert. A separate "needs attention" list said the same
   // thing in a second place, which is one more thing to read, not less.
   const top = alerts[0];
 
   return (
+    <div className="relative">
+      {/* Removing a tile was buried on the company page, which is a long way to
+          go to undo an add. The confirm step is here because the grid is the
+          one place a stray click is cheap to make and annoying to reverse. */}
+      {confirming ? (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-[inherit] border border-[var(--line)] bg-[var(--bg)]/95 p-4 backdrop-blur">
+          <p className="text-center text-[12px] leading-snug">
+            Stop tracking <strong>{row.ticker}</strong>?
+          </p>
+          <p className="text-center text-[10px] text-[var(--muted)]">
+            Its history stays — you can add it back any time.
+          </p>
+          <div className="mt-1 flex gap-2">
+            <button
+              onClick={() => { void remove({ ticker: row.ticker }); setConfirming(false); }}
+              className="chip border-[var(--bad)]/50 text-[var(--bad)] hover:bg-[var(--bad)]/10"
+            >
+              Remove
+            </button>
+            <button onClick={() => setConfirming(false)} className="chip hover:text-[var(--text)]">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={(e) => { e.preventDefault(); setConfirming(true); }}
+          aria-label={`Stop tracking ${row.ticker}`}
+          className="absolute right-1.5 top-1.5 z-10 rounded p-1 text-[var(--muted)] opacity-0 transition hover:bg-[var(--line)] hover:text-[var(--text)] focus-visible:opacity-100 group-hover:opacity-100"
+        >
+          <X size={12} />
+        </button>
+      )}
+
     <Link
       href={`/c/${row.ticker}`}
       className="panel group flex flex-col gap-3 p-4 transition hover:border-[var(--accent)]/40"
@@ -93,24 +134,22 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
       <Sparkline values={p?.spark30} width={220} height={38} />
 
       <div className="flex items-center justify-between gap-2">
+        {/* The rating carries the pullback state, because "cheap" and "the
+            selling has stopped" are different facts and only one of them is
+            in the verdict. */}
         <span
           className="chip"
           style={{
-            color: VERDICT_COLOR[verdict] ?? "var(--muted)",
-            borderColor: `${VERDICT_COLOR[verdict] ?? "#334155"}55`,
+            color: sig.fallingKnife
+              ? "var(--warn)"
+              : (VERDICT_COLOR[verdict] ?? "var(--muted)"),
+            borderColor: `${sig.fallingKnife ? "#fbbf24" : (VERDICT_COLOR[verdict] ?? "#334155")}55`,
           }}
+          title={sig.hint}
         >
-          {verdict.replace(/_/g, " ")}
+          {sig.headline}
         </span>
         <div className="flex items-center gap-2 text-[11px]">
-          {p?.dipState && p.dipState !== "none" && p.dipState !== "noVolume" && (
-            <span
-              style={{ color: DIP_COLOR[p.dipState] }}
-              title={`Dip read: ${DIP_LABEL[p.dipState]} (${p.dipScore ?? 0}/100)`}
-            >
-              {DIP_LABEL[p.dipState]}
-            </span>
-          )}
           {zoneLabel && (
             <span style={{ color: zoneColor }} title="Current valuation zone">
               {zoneLabel}
@@ -150,5 +189,6 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
         </div>
       )}
     </Link>
+    </div>
   );
 }
