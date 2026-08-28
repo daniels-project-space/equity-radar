@@ -305,7 +305,9 @@ export function PriceChart({
               return (
                 <div
                   key={band.label}
-                  className="absolute left-0 right-[70px]"
+                  // Inset clears both the price scale and the fair-value axis
+                  // label, which otherwise sits on top of the band name.
+                  className="absolute left-0 right-[150px]"
                   style={{ top, height, background: `${color}14`, borderTop: `1px dashed ${color}55` }}
                 >
                   {height >= 16 && (
