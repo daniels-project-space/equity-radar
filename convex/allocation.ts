@@ -208,6 +208,32 @@ export const storeCalibration = internalMutation({
   },
 });
 
+export const storeTournament = internalMutation({
+  args: { result: v.any() },
+  handler: async (ctx, { result }) => {
+    const existing = await ctx.db
+      .query("simulations")
+      .withIndex("by_key", (i) => i.eq("key", "tournament"))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, { result, computedAt: Date.now() });
+      return;
+    }
+    await ctx.db.insert("simulations", { key: "tournament", result, computedAt: Date.now() });
+  },
+});
+
+export const tournament = query({
+  args: {},
+  handler: async (ctx) => {
+    const row = await ctx.db
+      .query("simulations")
+      .withIndex("by_key", (i) => i.eq("key", "tournament"))
+      .unique();
+    return row ? { result: row.result, computedAt: row.computedAt } : null;
+  },
+});
+
 export const calibration = query({
   args: {},
   handler: async (ctx) => {

@@ -293,13 +293,15 @@ export type Band = {
  * Band edges expressed as fractions of a target multiple, so the whole table
  * shifts automatically when the peer group re-rates or estimates move.
  */
+// Named for where the price is, not for what to do — the verdict owns the
+// action vocabulary. See buildBands in lib/valuation.ts for why they were split.
 const BAND_SHAPE: { label: string; action: string; lo: number; hi: number }[] = [
-  { label: "Extremely attractive", action: "BUY_AGGRESSIVE", lo: 0.0, hi: 0.7 },
-  { label: "Strong buy", action: "BUY", lo: 0.7, hi: 0.85 },
-  { label: "Attractive", action: "BUY", lo: 0.85, hi: 1.0 },
-  { label: "Accumulate", action: "ACCUMULATE", lo: 1.0, hi: 1.15 },
-  { label: "Hold", action: "HOLD", lo: 1.15, hi: 1.35 },
-  { label: "Expensive", action: "TRIM", lo: 1.35, hi: 2.2 },
+  { label: "Deep discount", action: "BUY_AGGRESSIVE", lo: 0.0, hi: 0.7 },
+  { label: "Well below value", action: "BUY", lo: 0.7, hi: 0.85 },
+  { label: "Below value", action: "BUY", lo: 0.85, hi: 1.0 },
+  { label: "Around fair value", action: "ACCUMULATE", lo: 1.0, hi: 1.15 },
+  { label: "Above value", action: "HOLD", lo: 1.15, hi: 1.35 },
+  { label: "Well above value", action: "TRIM", lo: 1.35, hi: 2.2 },
 ];
 
 export const DEFAULT_TARGET_PE = 26;

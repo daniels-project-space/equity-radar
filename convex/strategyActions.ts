@@ -8,6 +8,7 @@ import { allocate } from "./lib/allocator";
 import { fetchCiksBySic } from "./lib/sec";
 import { calibrate } from "./lib/calibrate";
 import { backtest, buildCtx, combinations, type RuleResult } from "./lib/rules";
+import { runTournament } from "./lib/tournament";
 
 /* ------------------------------------------------------------------ */
 /* Rule simulation                                                     */
@@ -312,4 +313,37 @@ export const searchRulesAll = action({
 
     return { names, rules };
   },
+});
+
+/* ------------------------------------------------------------------ */
+/* Signal tournament                                                   */
+/* ------------------------------------------------------------------ */
+
+async function tournament(ctx: ActionCtx, folds: number) {
+  const watch = await ctx.runQuery(internal.data.watchlistTickers, {});
+  const assets = [];
+  for (const w of watch) {
+    const bars = await ctx.runQuery(internal.data.fullBarsFor, { ticker: w.ticker, limit: 5000 });
+    if (bars.length >= 700) assets.push({ ticker: w.ticker, bars });
+  }
+  const result = runTournament(assets, { folds });
+  if (!result) return { ok: false, reason: "not enough history" };
+  await ctx.runMutation(internal.allocation.storeTournament, { result });
+  return {
+    ok: true,
+    names: result.names,
+    tests: result.totalTests,
+    champion: result.champion?.label ?? null,
+    verdict: result.verdict,
+  };
+}
+
+export const runSignalTournament = action({
+  args: { folds: v.optional(v.number()) },
+  handler: async (ctx, { folds }) => tournament(ctx, folds ?? 4),
+});
+
+export const tournamentCron = internalAction({
+  args: {},
+  handler: async (ctx) => tournament(ctx, 4),
 });

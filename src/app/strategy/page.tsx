@@ -225,6 +225,122 @@ function CalibrationPanel() {
   );
 }
 
+
+type Entrant = {
+  label: string;
+  samples: number;
+  medianEdge: number;
+  winRate: number;
+  nameWinRate: number;
+  foldWinRate: number;
+  medianExposure: number;
+  tStat: number;
+  survives: boolean;
+};
+
+type TournamentResult = {
+  rounds: { round: number; tested: number; survived: number; entrants: Entrant[] }[];
+  champion: Entrant | null;
+  benchmarkNote: string;
+  names: number;
+  folds: number;
+  totalTests: number;
+  criticalT: number;
+  verdict: string;
+};
+
+/**
+ * The signal tournament.
+ *
+ * Every entry rule run across every name, in four separate periods, against
+ * buy-and-hold. A rule has to beat it on most names AND in most periods to
+ * survive — winning on one chart or one regime is what luck looks like.
+ */
+function TournamentPanel() {
+  const t = useQuery(api.allocation.tournament);
+  const r = t?.result as TournamentResult | undefined;
+  if (!r?.rounds?.length) return null;
+  const round1 = r.rounds[0];
+
+  return (
+    <section className="panel p-4">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          Signal tournament
+        </h2>
+        <span className="text-[10px] text-[var(--muted)]">
+          {r.totalTests} rules · {r.names} names · {r.folds} periods
+        </span>
+      </div>
+
+      <p
+        className="mb-3 text-[11px] leading-relaxed"
+        style={{ color: r.champion ? "var(--good)" : "var(--warn)" }}
+      >
+        {r.verdict}
+      </p>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px] text-[11px] tabular">
+          <thead className="text-[9px] uppercase tracking-wider text-[var(--muted)]">
+            <tr className="border-b border-[var(--line)]">
+              <th className="py-1.5 text-left font-medium">Rule</th>
+              <th className="py-1.5 text-right font-medium">Edge</th>
+              <th className="py-1.5 text-right font-medium">Names</th>
+              <th className="py-1.5 text-right font-medium">Periods</th>
+              <th className="py-1.5 text-right font-medium">Invested</th>
+              <th className="py-1.5 text-right font-medium">t</th>
+            </tr>
+          </thead>
+          <tbody>
+            {round1.entrants.map((e) => (
+              <tr key={e.label} className="border-b border-[var(--line)] last:border-0">
+                <td className="py-1.5 pr-2">{e.label}</td>
+                <td
+                  className="py-1.5 text-right"
+                  style={{ color: e.medianEdge >= 0 ? "var(--good)" : "var(--bad)" }}
+                >
+                  {e.medianEdge >= 0 ? "+" : ""}
+                  {e.medianEdge}pp
+                </td>
+                <td className="py-1.5 text-right text-[var(--muted)]">{e.nameWinRate}%</td>
+                <td className="py-1.5 text-right text-[var(--muted)]">{e.foldWinRate}%</td>
+                <td className="py-1.5 text-right text-[var(--muted)]">
+                  {Math.round(e.medianExposure * 100)}%
+                </td>
+                <td
+                  className="py-1.5 text-right"
+                  style={{ color: Math.abs(e.tStat) >= r.criticalT ? "var(--fg)" : "var(--muted)" }}
+                >
+                  {e.tStat}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-3 space-y-2 border-t border-[var(--line)] pt-2 text-[10px] leading-relaxed text-[var(--muted)]">
+        <p>
+          <span className="text-[var(--text)]">Edge</span> is against buy-and-hold, so negative means
+          the rule cost money. <span className="text-[var(--text)]">Names</span> and{" "}
+          <span className="text-[var(--text)]">Periods</span> are how often it won across the
+          thirteen charts and the four separate stretches of history — both must clear 60% to
+          survive, so a rule cannot pass on one lucky chart.{" "}
+          <span className="text-[var(--text)]">Invested</span> is time in the market; buy-and-hold is
+          87% by construction.
+        </p>
+        <p>
+          What these rules mostly vary is exposure, not timing. Sitting out part of an advance costs
+          more than the entries avoided are worth, which is why the strongest negative numbers belong
+          to the trend filters that keep you out the longest. Combinations were never built — nothing
+          survived the first round, and pairing losers produces a worse loser.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 export default function StrategyPage() {
   const sim = useQuery(api.allocation.latestSimulation);
   const history = useQuery(api.allocation.history, { limit: 14 });
@@ -368,6 +484,8 @@ export default function StrategyPage() {
           </p>
         </div>
       </section>
+
+      <TournamentPanel />
 
       <CalibrationPanel />
 

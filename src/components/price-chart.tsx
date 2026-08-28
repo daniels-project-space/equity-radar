@@ -325,11 +325,40 @@ export function PriceChart({
         )}
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-[var(--muted)]">
-        <span><span style={{ color: "#38bdf8" }}>—</span> 50-day</span>
-        <span><span style={{ color: "#a78bfa" }}>—</span> 200-day</span>
-        <span><span style={{ color: "#e6edf3" }}>- -</span> fair value</span>
-        <span>E = earnings release</span>
+      {/* The shaded areas were unexplained, which made the most prominent thing
+          on the chart the least legible one. */}
+      <div className="mt-2 space-y-1.5 text-[10px] text-[var(--muted)]">
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          <span><span style={{ color: "#38bdf8" }}>—</span> 50-day average</span>
+          <span><span style={{ color: "#a78bfa" }}>—</span> 200-day average</span>
+          <span><span style={{ color: "#e6edf3" }}>- -</span> fair value</span>
+          <span>E = earnings release</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-[var(--text)]">Shaded bands:</span>
+          {[
+            { label: "below value", action: "BUY" },
+            { label: "around fair value", action: "ACCUMULATE" },
+            { label: "above value", action: "TRIM" },
+          ].map((b) => (
+            <span key={b.label} className="flex items-center gap-1">
+              <span
+                className="inline-block h-2.5 w-4 rounded-[2px]"
+                style={{
+                  background: `${ACTION_COLOR[b.action] ?? "#64748b"}30`,
+                  borderTop: `1px dashed ${ACTION_COLOR[b.action] ?? "#64748b"}88`,
+                }}
+              />
+              {b.label}
+            </span>
+          ))}
+        </div>
+        <p className="leading-relaxed">
+          The bands are price against fair value, nothing else. Their width is this stock&rsquo;s own
+          margin of safety, so a volatile name gets wider zones than a steady one. They describe how
+          cheap the price is — the rating above the chart is a separate judgement that also weighs
+          growth, quality and moat, so the two can legitimately disagree.
+        </p>
       </div>
     </div>
   );

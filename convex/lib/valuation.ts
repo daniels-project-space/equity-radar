@@ -426,14 +426,29 @@ export function valuate(i: ValuationInput): Valuation | null {
  * safety — so an uncertain valuation demands a deeper discount before it
  * reads as a buy, and the whole table is narrower when we know more.
  */
+/**
+ * Price zones, named for where the price is rather than for what to do.
+ *
+ * These used to be labelled "Strong buy", "Attractive", "Accumulate" — the same
+ * vocabulary the verdict uses — and the two answer different questions. A zone
+ * is purely price against fair value. A verdict blends growth, quality, moat and
+ * momentum, of which valuation is one part. So NVDA could sit in the
+ * "Attractive" zone on a 21% discount while the verdict read "Strong buy" on the
+ * strength of everything else, and the screen looked broken even though both
+ * numbers were right.
+ *
+ * Naming the zones after the discount removes the collision: the chart now says
+ * how cheap something is, the verdict says what the model thinks of it, and when
+ * they diverge that is information rather than a contradiction.
+ */
 function buildBands(fv: number, mos: number, anchor: number): Band[] {
   const edges: { label: string; action: string; lo: number; hi: number }[] = [
-    { label: "Deep value", action: "BUY_AGGRESSIVE", lo: 0, hi: 1 - 2 * mos },
-    { label: "Strong buy", action: "BUY", lo: 1 - 2 * mos, hi: 1 - mos },
-    { label: "Attractive", action: "BUY", lo: 1 - mos, hi: 1 - mos / 2 },
-    { label: "Accumulate", action: "ACCUMULATE", lo: 1 - mos / 2, hi: 1 + mos / 2 },
-    { label: "Expensive", action: "HOLD", lo: 1 + mos / 2, hi: 1 + mos },
-    { label: "Rich", action: "TRIM", lo: 1 + mos, hi: 1 + 2.5 * mos },
+    { label: "Deep discount", action: "BUY_AGGRESSIVE", lo: 0, hi: 1 - 2 * mos },
+    { label: "Well below value", action: "BUY", lo: 1 - 2 * mos, hi: 1 - mos },
+    { label: "Below value", action: "BUY", lo: 1 - mos, hi: 1 - mos / 2 },
+    { label: "Around fair value", action: "ACCUMULATE", lo: 1 - mos / 2, hi: 1 + mos / 2 },
+    { label: "Above value", action: "HOLD", lo: 1 + mos / 2, hi: 1 + mos },
+    { label: "Well above value", action: "TRIM", lo: 1 + mos, hi: 1 + 2.5 * mos },
   ];
   return edges.map((e) => ({
     label: e.label,

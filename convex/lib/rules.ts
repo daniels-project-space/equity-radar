@@ -176,7 +176,97 @@ export const CONDITIONS: Condition[] = [
     test: ({ vol20, vol60, i }) =>
       vol20[i] !== null && vol60[i] !== null && (vol20[i] as number) > (vol60[i] as number),
   },
+  {
+    key: "rsi2Oversold",
+    label: "RSI(2) below 10 — Connors mean reversion",
+    test: ({ bars, i }) => {
+      const w = bars.slice(Math.max(0, i - 30), i + 1);
+      const r = rsiAt(w, 2);
+      return r !== null && r < 10;
+    },
+  },
+  {
+    key: "fastCross",
+    label: "20-day above 50-day",
+    test: ({ bars, i }) => {
+      const a = smaAt(bars, i, 20);
+      const b = smaAt(bars, i, 50);
+      return a !== null && b !== null && a > b;
+    },
+  },
+  {
+    key: "belowFast",
+    label: "price below its 5-day average (short-term stretch)",
+    test: ({ bars, i }) => {
+      const a = smaAt(bars, i, 5);
+      return a !== null && bars[i].c < a;
+    },
+  },
+  {
+    key: "calmRegime",
+    label: "volatility below its own median",
+    test: ({ bars, i }) => {
+      const v = realisedVol(bars, i, 20);
+      const long = realisedVol(bars, i, 120);
+      return v !== null && long !== null && v < long;
+    },
+  },
+  {
+    key: "volumeDryUp",
+    label: "selling volume drying up",
+    test: ({ vol20, vol60, i }) =>
+      vol20[i] !== null && vol60[i] !== null && (vol20[i] as number) < (vol60[i] as number) * 0.9,
+  },
+  {
+    key: "donchian20",
+    label: "close above the 20-day high",
+    test: ({ bars, i }) => {
+      if (i < 20) return false;
+      let hi = -Infinity;
+      for (let j = i - 20; j < i; j++) hi = Math.max(hi, bars[j].c);
+      return Number.isFinite(hi) && bars[i].c > hi;
+    },
+  },
 ];
+
+/** Simple moving average at index `i`. */
+function smaAt(bars: Bar[], i: number, n: number): number | null {
+  if (i + 1 < n) return null;
+  let acc = 0;
+  for (let j = i - n + 1; j <= i; j++) acc += bars[j].c;
+  return acc / n;
+}
+
+/** Wilder RSI over the final `n` closes of a window. */
+function rsiAt(win: Bar[], n: number): number | null {
+  if (win.length < n + 1) return null;
+  const slice = win.slice(-(n + 1));
+  let g = 0;
+  let l = 0;
+  for (let k = 1; k < slice.length; k++) {
+    const d = slice[k].c - slice[k - 1].c;
+    if (d >= 0) g += d;
+    else l -= d;
+  }
+  if (g + l === 0) return 50;
+  return l === 0 ? 100 : 100 - 100 / (1 + g / l);
+}
+
+/** Annualised realised volatility over the trailing `n` bars ending at `i`. */
+function realisedVol(bars: Bar[], i: number, n: number): number | null {
+  if (i < n) return null;
+  const rets: number[] = [];
+  for (let j = i - n + 1; j <= i; j++) {
+    const a = bars[j - 1]?.c;
+    const b = bars[j]?.c;
+    if (a > 0 && b > 0) rets.push(Math.log(b / a));
+  }
+  if (rets.length < 5) return null;
+  const m = rets.reduce((x, y) => x + y, 0) / rets.length;
+  const v = rets.reduce((x, y) => x + (y - m) ** 2, 0) / (rets.length - 1);
+  return Math.sqrt(v) * Math.sqrt(252);
+}
+
 
 export function buildCtx(bars: Bar[]): Omit<Ctx, "i"> {
   const rollingMean = (n: number) => {
