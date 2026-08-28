@@ -234,6 +234,10 @@ export default defineSchema({
     peerRows: v.optional(v.any()),
     /** Price-implied growth and how demanding it is. See lib/expectations.ts. */
     expectations: v.optional(v.any()),
+    /** Multi-year growth read from filed quarters. See lib/trajectory.ts. */
+    trajectory: v.optional(v.any()),
+    /** Annualised realised volatility, used to size the buy zones. */
+    realisedVol: v.optional(v.number()),
     quartersAvailable: v.number(),
     /** Period end of the newest quarter we have. Foreign private issuers file
      *  20-F/6-K and can lag domestic filers by two or three quarters, so this

@@ -9,6 +9,7 @@ import { Disclosure } from "@/components/disclosure";
 import { keyFacts, TONE_COLOR } from "@/lib/key-facts";
 import { signalLabel } from "@/lib/signal-label";
 import { projectReturns } from "@/lib/projection";
+import { useLiveQuote } from "@/lib/use-live-quote";
 import {
   usd,
   bigUsd,
@@ -52,12 +53,21 @@ export default function CompanyPage() {
   const add = useMutation(api.watchlist.add);
   const remove = useMutation(api.watchlist.remove);
   const [busy, setBusy] = useState(false);
+  // Polls while the tab is visible during US hours; falls back to the stored
+  // price the moment it is not available.
+  const live = useLiveQuote(ticker);
 
   if (data === undefined) return <p className="text-[12px] text-[var(--muted)]">Loading…</p>;
   if (data === null) return <p className="text-[12px] text-[var(--muted)]">{ticker} not found.</p>;
 
   const m = data.metrics;
-  const p = data.priceStats;
+  // The live quote overrides the stored one for anything the reader sees as
+  // "now" — price, day change, the zone the price falls in, and the return
+  // outlook, which is quoted off the price you would actually pay.
+  const stored = data.priceStats;
+  const p = stored
+    ? { ...stored, last: live?.last ?? stored.last, prevClose: live?.prevClose ?? stored.prevClose }
+    : stored;
   const s = data.score;
   const b = data.bands;
   const bandList = b?.bands ?? [];
@@ -78,6 +88,7 @@ export default function CompanyPage() {
       m?.expectations?.justifiedGrowth === undefined
         ? undefined
         : m.expectations.justifiedGrowth / 100,
+    growthBasis: m?.trajectory?.basis,
     dispersion: b?.dispersion,
   });
 
@@ -225,7 +236,9 @@ export default function CompanyPage() {
         <Column title="What it's worth">
           <MethodBars methods={methods} price={p?.last} />
           {m?.expectations && <ExpectationsPanel data={m.expectations} />}
-          {outlook && <ReturnOutlook rows={outlook} price={p?.last} />}
+          {outlook && (
+            <ReturnOutlook rows={outlook} price={p?.last} basis={m?.trajectory?.basis} />
+          )}
         </Column>
 
         <Column title="How good it is">

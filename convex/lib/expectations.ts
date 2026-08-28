@@ -127,16 +127,29 @@ export function justifiedGrowthRate(input: {
   revYoYPrior?: number;
   guidedGrowth?: number;
   moatScore?: number;
+  /** Multi-year, per-share growth from the filed quarters. Preferred when present. */
+  trajectoryGrowth?: number;
+  /** 0-1 weight on that estimate; the rest reverts toward the terminal rate. */
+  trajectoryConfidence?: number;
 }): number | undefined {
-  const hist = [input.revYoY, input.revYoYPrior].filter(
-    (x): x is number => typeof x === "number"
-  );
-  const base =
-    input.guidedGrowth !== undefined
-      ? input.guidedGrowth
-      : hist.length
-        ? hist.reduce((a, b) => a + b, 0) / hist.length
-        : undefined;
+  // A multi-year, per-share figure beats a single year-over-year reading, so it
+  // wins when it exists — but only in proportion to how steady the history is.
+  // The remainder reverts toward terminal rather than toward a second guess.
+  let base: number | undefined;
+  if (input.trajectoryGrowth !== undefined) {
+    const c = input.trajectoryConfidence ?? 0.5;
+    base = input.trajectoryGrowth * c + 0.025 * (1 - c);
+  } else {
+    const hist = [input.revYoY, input.revYoYPrior].filter(
+      (x): x is number => typeof x === "number"
+    );
+    base =
+      input.guidedGrowth !== undefined
+        ? input.guidedGrowth
+        : hist.length
+          ? hist.reduce((a, b) => a + b, 0) / hist.length
+          : undefined;
+  }
   if (base === undefined) return undefined;
 
   const m = input.moatScore ?? 40;
@@ -161,6 +174,8 @@ export function justifiedValue(input: {
   guidedGrowth?: number;
   moatScore?: number;
   netDebtToEbitda?: number;
+  trajectoryGrowth?: number;
+  trajectoryConfidence?: number;
 }): { perShare: number; growth: number; horizon: number; wacc: number } | null {
   const { fcfTtm, shares } = input;
   if (!fcfTtm || fcfTtm <= 0 || !shares || shares <= 0) return null;
@@ -187,6 +202,8 @@ export function readExpectations(input: {
   guidedGrowth?: number;
   moatScore?: number;
   netDebtToEbitda?: number;
+  trajectoryGrowth?: number;
+  trajectoryConfidence?: number;
 }): Expectations | null {
   const { marketCap, netCash, fcfTtm } = input;
   if (!marketCap || marketCap <= 0) return null;

@@ -58,6 +58,8 @@ export function projectReturns(input: {
   justifiedGrowth?: number;
   /** Method disagreement, 0-1.5 — widens the spread. */
   dispersion?: number;
+  /** Where the growth number came from, passed through for display. */
+  growthBasis?: string;
 }): Projection[] | null {
   const { price, fairValue } = input;
   if (!price || price <= 0 || !fairValue || fairValue <= 0) return null;

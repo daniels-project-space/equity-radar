@@ -30,6 +30,7 @@ import type * as lib_scoring from "../lib/scoring.js";
 import type * as lib_sec from "../lib/sec.js";
 import type * as lib_signals from "../lib/signals.js";
 import type * as lib_simulate from "../lib/simulate.js";
+import type * as lib_trajectory from "../lib/trajectory.js";
 import type * as lib_valuation from "../lib/valuation.js";
 import type * as notify from "../notify.js";
 import type * as pushActions from "../pushActions.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   "lib/sec": typeof lib_sec;
   "lib/signals": typeof lib_signals;
   "lib/simulate": typeof lib_simulate;
+  "lib/trajectory": typeof lib_trajectory;
   "lib/valuation": typeof lib_valuation;
   notify: typeof notify;
   pushActions: typeof pushActions;

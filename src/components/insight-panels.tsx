@@ -451,7 +451,15 @@ export type ProjectionRow = {
  * the difference between the low and high cases is mostly the question of
  * whether the discount ever closes, which no model here can answer.
  */
-export function ReturnOutlook({ rows, price }: { rows: ProjectionRow[]; price?: number }) {
+export function ReturnOutlook({
+  rows,
+  price,
+  basis,
+}: {
+  rows: ProjectionRow[];
+  price?: number;
+  basis?: string;
+}) {
   const span = Math.max(...rows.map((r) => Math.abs(r.high)), 10);
 
   return (
@@ -504,11 +512,17 @@ export function ReturnOutlook({ rows, price }: { rows: ProjectionRow[]; price?: 
       </div>
 
       <p className="mt-3 border-t border-[var(--line)] pt-2 text-[10px] leading-relaxed text-[var(--muted)]">
-        A scenario, not a forecast. It assumes fair value compounds at the growth this business has
-        actually delivered, capped by its moat, and that the gap to fair value closes over about
-        three years. The shaded range is the difference between the discount never closing and it
-        closing with growth at the top of its range — which is the part no model here can settle.
+        A scenario, not a forecast. Fair value compounds at the growth the filings support — faded
+        toward a terminal rate, capped by the moat, and net of shares issued — and the gap to fair
+        value is assumed to close over about three years. The shaded range is the difference between
+        that discount never closing and it closing with growth at the top of its range, which is the
+        part no model here can settle.
       </p>
+      {basis && (
+        <p className="mt-1.5 text-[10px] leading-relaxed text-[var(--muted)]">
+          <span className="text-[var(--text)]">Growth basis:</span> {basis}
+        </p>
+      )}
     </section>
   );
 }

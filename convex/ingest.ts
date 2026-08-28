@@ -15,6 +15,7 @@ import { assessMoat } from "./lib/moat";
 import { detectDip } from "./lib/dip";
 import { featuresAt } from "./lib/signals";
 import { readExpectations } from "./lib/expectations";
+import { readTrajectory } from "./lib/trajectory";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fmt = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "n/a");
@@ -336,6 +337,23 @@ async function doRefreshTicker(
   });
 
 
+  // ---- growth as the filings show it ---------------------------------
+  const trajectory = readTrajectory(quarters);
+
+  // Realised volatility, annualised, from the stored daily closes. Feeds band
+  // width so a zone means the same thing on a quiet name and a violent one.
+  let realisedVol: number | undefined;
+  {
+    const closes = ohlcv.slice(-252).map((b) => b.c).filter((c) => c > 0);
+    if (closes.length > 60) {
+      const rets: number[] = [];
+      for (let i = 1; i < closes.length; i++) rets.push(Math.log(closes[i] / closes[i - 1]));
+      const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+      const varr = rets.reduce((a, b) => a + (b - mean) ** 2, 0) / (rets.length - 1);
+      realisedVol = Math.sqrt(varr) * Math.sqrt(252);
+    }
+  }
+
   // ---- what the price already assumes --------------------------------
   const expectations = readExpectations({
     marketCap: metrics.marketCap,
@@ -347,6 +365,8 @@ async function doRefreshTicker(
     guidedGrowth,
     moatScore: moat.score,
     netDebtToEbitda: metrics.netDebtToEbitda,
+    trajectoryGrowth: trajectory?.perShareGrowth,
+    trajectoryConfidence: trajectory?.confidence,
   });
 
   // ---- valuation ------------------------------------------------------
@@ -375,6 +395,9 @@ async function doRefreshTicker(
     moatScore: moat.score,
     netDebtToEbitda: metrics.netDebtToEbitda,
     expectationsVerdict: expectations?.verdict,
+    trajectoryGrowth: trajectory?.perShareGrowth,
+    trajectoryConfidence: trajectory?.confidence,
+    realisedVol,
     grossMarginPct: metrics.grossMarginPct,
     ownMedianPe,
     ownPeSamples: ownPes.length,
@@ -397,6 +420,8 @@ async function doRefreshTicker(
       moatSummary: moat.summary,
       moatPillars: moat.pillars,
       expectations: expectations ?? undefined,
+      trajectory: trajectory ?? undefined,
+      realisedVol,
       guidedGrowth,
       guidanceDelta,
       guidancePeriod: latestGuide?.periodLabel,

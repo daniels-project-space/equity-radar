@@ -50,6 +50,11 @@ export type ValuationInput = {
   /** Feeds the cash-flow method: caps justified growth and sets the horizon. */
   moatScore?: number;
   netDebtToEbitda?: number;
+  /** Multi-year per-share growth and its confidence, from filed quarters. */
+  trajectoryGrowth?: number;
+  trajectoryConfidence?: number;
+  /** Annualised realised volatility of the stock, as a fraction. */
+  realisedVol?: number;
   /** Median P/E this company has actually traded at over its own history. */
   ownMedianPe?: number;
   ownPeSamples?: number;
@@ -293,6 +298,8 @@ export function valuate(i: ValuationInput): Valuation | null {
       guidedGrowth: i.guidedGrowth,
       moatScore: i.moatScore,
       netDebtToEbitda: i.netDebtToEbitda,
+      trajectoryGrowth: i.trajectoryGrowth,
+      trajectoryConfidence: i.trajectoryConfidence,
     });
     if (jv) {
       add(
@@ -381,10 +388,16 @@ export function valuate(i: ValuationInput): Valuation | null {
         : i.expectationsVerdict === "undemanding"
           ? -0.02
           : 0;
+  // Volatility widens the zones too. A band that is reachable on a 20%-vol
+  // utility is decorative on a 70%-vol semiconductor: the price passes through
+  // it in a week and the "zone" never functions as a zone. Scaling by the
+  // stock's own realised volatility is what makes the boundaries mean the same
+  // thing across names.
+  const volPad = i.realisedVol === undefined ? 0 : clamp((i.realisedVol - 0.3) * 0.25, -0.03, 0.12);
   const marginOfSafety = clamp(
-    0.12 + dispersion * 0.35 + (1 - coverage) * 0.25 + expectationsPad,
+    0.12 + dispersion * 0.35 + (1 - coverage) * 0.25 + expectationsPad + volPad,
     0.1,
-    0.45
+    0.5
   );
 
   const confidence: Valuation["confidence"] =
