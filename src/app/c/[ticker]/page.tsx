@@ -31,6 +31,7 @@ import {
   PillarBars,
   Projections,
   PeerTable,
+  ExpectationsPanel,
   type Method,
   type Pillar,
   type PeerRow,
@@ -199,6 +200,7 @@ export default function CompanyPage() {
       <div className="grid gap-3 lg:grid-cols-3">
         <Column title="What it's worth">
           <MethodBars methods={methods} price={p?.last} />
+          {m?.expectations && <ExpectationsPanel data={m.expectations} />}
         </Column>
 
         <Column title="How good it is">

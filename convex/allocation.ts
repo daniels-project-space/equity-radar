@@ -68,6 +68,9 @@ export const today = query({
         verdict: score?.verdict,
         currentBand: bands?.currentBand,
         latestPeriodEnd: metrics?.latestPeriodEnd,
+        ret3m: stats?.ret3m,
+        expectationsVerdict: metrics?.expectations?.verdict,
+        expectationsGap: metrics?.expectations?.gap,
         dipState: stats?.dipState,
         dipScore: stats?.dipScore,
       });
@@ -121,6 +124,9 @@ export const snapshotInputs = internalQuery({
         verdict: score?.verdict,
         currentBand: bands?.currentBand,
         latestPeriodEnd: metrics?.latestPeriodEnd,
+        ret3m: stats?.ret3m,
+        expectationsVerdict: metrics?.expectations?.verdict,
+        expectationsGap: metrics?.expectations?.gap,
         dipState: stats?.dipState,
       });
     }
@@ -138,11 +144,14 @@ export const snapshot = internalMutation({
         weight: v.number(),
         conviction: v.number(),
         reason: v.string(),
+        rank: v.optional(v.number()),
       })
     ),
     cash: v.number(),
     headline: v.string(),
     rejected: v.array(v.object({ ticker: v.string(), reason: v.string() })),
+    deploymentRate: v.optional(v.number()),
+    regime: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const date = new Date().toISOString().slice(0, 10);

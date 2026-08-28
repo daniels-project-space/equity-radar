@@ -64,10 +64,21 @@ function Donut({ slices, cash }: { slices: Slice[]; cash: number }) {
   );
 }
 
+const REGIME_COLOR: Record<string, string> = {
+  "broadly cheap": "var(--good)",
+  mixed: "var(--muted)",
+  "broadly expensive": "var(--warn)",
+  stretched: "var(--bad)",
+};
+
 /**
- * "If I contributed today, where would it go?" — including the answer
- * "nowhere". An allocator that always finds something to buy is a spending
- * schedule, not a decision.
+ * "If I contributed today, where would it go?"
+ *
+ * Two separate answers, deliberately shown as two things. The size of the
+ * contribution flexes with the market — down when everything is dear, up when
+ * it is not, but never to zero, because refusing to invest while valuations
+ * drift upward for years is itself an expensive call. The split between names
+ * is a relative judgement that always has an answer.
  */
 export function DcaWidget() {
   const alloc = useQuery(api.allocation.today);
@@ -77,6 +88,8 @@ export function DcaWidget() {
   }
 
   const nothing = alloc.slices.length === 0;
+  const regime = alloc.regime;
+  const rate = alloc.deploymentRate ?? 1;
 
   return (
     <section className="panel p-4">
@@ -86,6 +99,23 @@ export function DcaWidget() {
         </h2>
         <span className="text-[10px] text-[var(--muted)]">{alloc.evaluated} evaluated</span>
       </div>
+
+      {regime && (
+        <div className="mb-3 rounded-md border border-[var(--line)] p-2.5">
+          <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+            <span
+              className="text-[10px] font-medium uppercase tracking-wider"
+              style={{ color: REGIME_COLOR[regime.label] ?? "var(--muted)" }}
+            >
+              {regime.label}
+            </span>
+            <span className="tabular text-[11px]">
+              deploy <strong>{rate.toFixed(2)}x</strong> normal
+            </span>
+          </div>
+          <p className="text-[10px] leading-snug text-[var(--muted)]">{regime.summary}</p>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-5">
         <Donut slices={alloc.slices} cash={alloc.cash} />

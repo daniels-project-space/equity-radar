@@ -332,3 +332,106 @@ const Cell = ({ value, best }: { value: string; best: boolean }) => (
     {value}
   </td>
 );
+
+export type ExpectationsData = {
+  impliedGrowth: number;
+  referenceGrowth?: number;
+  horizonYears: number;
+  discountRate: number;
+  verdict: "undemanding" | "in line" | "demanding" | "heroic" | "unpriceable";
+  summary: string;
+  gap?: number;
+};
+
+const EXP_COLOR: Record<string, string> = {
+  undemanding: "var(--good)",
+  "in line": "var(--good)",
+  demanding: "var(--warn)",
+  heroic: "var(--bad)",
+  unpriceable: "var(--muted)",
+};
+
+/**
+ * What the price already assumes, rather than what the model thinks it is worth.
+ *
+ * This is the panel to read when everything looks expensive at once. A fair
+ * value says "no" to the whole market in the same breath; the bar below says
+ * how far today's price is reaching beyond what the business has actually
+ * delivered — which still discriminates between names when nothing is cheap.
+ */
+export function ExpectationsPanel({ data }: { data: ExpectationsData }) {
+  const unpriceable = data.verdict === "unpriceable";
+  // Scale both bars against the larger of the two so the comparison is honest.
+  const span = Math.max(Math.abs(data.impliedGrowth), Math.abs(data.referenceGrowth ?? 0), 5);
+
+  return (
+    <section className="panel p-4">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          What the price assumes
+        </h2>
+        <span
+          className="text-[10px] font-medium uppercase tracking-wider"
+          style={{ color: EXP_COLOR[data.verdict] }}
+        >
+          {data.verdict}
+        </span>
+      </div>
+
+      {!unpriceable && (
+        <div className="mb-3 space-y-2">
+          <ExpectationRateBar
+            label="Priced in"
+            value={data.impliedGrowth}
+            span={span}
+            color={EXP_COLOR[data.verdict]}
+          />
+          {data.referenceGrowth !== undefined && (
+            <ExpectationRateBar
+              label="Delivered"
+              value={data.referenceGrowth}
+              span={span}
+              color="var(--muted)"
+            />
+          )}
+        </div>
+      )}
+
+      <p className="text-[11px] leading-relaxed text-[var(--muted)]">{data.summary}</p>
+
+      {!unpriceable && (
+        <p className="mt-2 border-t border-[var(--line)] pt-2 text-[10px] leading-relaxed text-[var(--muted)]">
+          A high multiple is not the same thing as a bad price. What matters is whether the growth
+          being paid for is growth this business has shown it can produce — so this stays readable
+          when every name on the list looks expensive at once.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function ExpectationRateBar({
+  label,
+  value,
+  span,
+  color,
+}: {
+  label: string;
+  value: number;
+  span: number;
+  color: string;
+}) {
+  const w = Math.min(100, (Math.abs(value) / span) * 100);
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="w-16 shrink-0 text-[10px] text-[var(--muted)]">{label}</span>
+      <div className="relative h-3 flex-1 overflow-hidden rounded-sm bg-[var(--line)]">
+        <div
+          className="absolute inset-y-0 left-0 rounded-sm"
+          style={{ width: `${w}%`, background: color, opacity: 0.75 }}
+        />
+      </div>
+      <span className="tabular w-14 shrink-0 text-right text-[11px]">{value}%</span>
+    </div>
+  );
+}

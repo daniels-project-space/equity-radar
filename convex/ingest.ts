@@ -14,6 +14,7 @@ import { valuate, median } from "./lib/valuation";
 import { assessMoat } from "./lib/moat";
 import { detectDip } from "./lib/dip";
 import { featuresAt } from "./lib/signals";
+import { readExpectations } from "./lib/expectations";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fmt = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "n/a");
@@ -363,6 +364,18 @@ async function doRefreshTicker(
       moatTrend: moat.direction,
       moatSummary: moat.summary,
       moatPillars: moat.pillars,
+      // What the price already assumes, read back out of it. Depends on the
+      // moat score, so it has to be computed after the moat.
+      expectations: readExpectations({
+        marketCap: metrics.marketCap,
+        netCash: metrics.netCash,
+        fcfTtm: metrics.fcfTtm,
+        revYoY: metrics.revYoY,
+        revYoYPrior: metrics.revYoYPrior,
+        guidedGrowth,
+        moatScore: moat.score,
+        netDebtToEbitda: metrics.netDebtToEbitda,
+      }) ?? undefined,
       guidedGrowth,
       guidanceDelta,
       guidancePeriod: latestGuide?.periodLabel,

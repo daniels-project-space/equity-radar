@@ -51,6 +51,8 @@ export const snapshotAllocation = internalAction({
       cash: result.cash,
       headline: result.headline,
       rejected: result.rejected,
+      deploymentRate: result.deploymentRate,
+      regime: result.regime,
     });
     return { slices: result.slices.length, cash: result.cash };
   },

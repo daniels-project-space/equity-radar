@@ -94,11 +94,15 @@ export default defineSchema({
         weight: v.number(),
         conviction: v.number(),
         reason: v.string(),
+        rank: v.optional(v.number()),
       })
     ),
     cash: v.number(),
     headline: v.string(),
     rejected: v.array(v.object({ ticker: v.string(), reason: v.string() })),
+    /** Multiple of a normal contribution deployed that day, and why. */
+    deploymentRate: v.optional(v.number()),
+    regime: v.optional(v.any()),
     createdAt: v.number(),
   }).index("by_date", ["date"]),
 
@@ -228,6 +232,8 @@ export default defineSchema({
     peerCount: v.optional(v.number()),
     /** Named closest competitors, ranked by size similarity within the industry. */
     peerRows: v.optional(v.any()),
+    /** Price-implied growth and how demanding it is. See lib/expectations.ts. */
+    expectations: v.optional(v.any()),
     quartersAvailable: v.number(),
     /** Period end of the newest quarter we have. Foreign private issuers file
      *  20-F/6-K and can lag domestic filers by two or three quarters, so this
