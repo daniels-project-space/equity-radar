@@ -498,6 +498,27 @@ export async function fetchEarnings8Ks(
   return out;
 }
 
+/**
+ * Every filer in an industry, straight from EDGAR's company search.
+ *
+ * The ticker→CIK map carries no SIC code, and fetching submissions for all
+ * 7,700 filers to learn one field each is absurd — so ask EDGAR for the
+ * industry directly and map the CIKs back through the universe table.
+ */
+export async function fetchCiksBySic(sic: string, limit = 100): Promise<string[]> {
+  const url =
+    `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&SIC=${encodeURIComponent(sic)}` +
+    `&type=10-K&dateb=&owner=include&count=${limit}&output=atom`;
+  const res = await fetch(url, { headers: SEC_HEADERS });
+  if (!res.ok) throw new Error(`edgar sic ${res.status}`);
+  const xml = await res.text();
+
+  const ciks = new Set<string>();
+  for (const m of xml.matchAll(/CIK=(\d{4,10})/g)) ciks.add(padCik(m[1]));
+  for (const m of xml.matchAll(/<cik>(\d{4,10})<\/cik>/gi)) ciks.add(padCik(m[1]));
+  return [...ciks];
+}
+
 /** Company profile — SIC is what the default peer grouping keys off. */
 export async function fetchProfile(cik: string): Promise<{
   name: string;

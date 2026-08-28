@@ -12,6 +12,8 @@ import { deriveMetrics, derivePriceStats } from "./lib/metrics";
 import { score as computeScore } from "./lib/scoring";
 import { valuate, median } from "./lib/valuation";
 import { assessMoat } from "./lib/moat";
+import { detectDip } from "./lib/dip";
+import { featuresAt } from "./lib/signals";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fmt = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "n/a");
@@ -98,8 +100,30 @@ async function doRefreshTicker(
   }
 
   const storedBars = await ctx.runQuery(internal.data.barsFor, { ticker: t });
+  const ohlcv = await ctx.runQuery(internal.data.fullBarsFor, { ticker: t });
+  const dip = detectDip(ohlcv);
   const stats = derivePriceStats(storedBars.map((b) => ({ date: b.date, c: b.c, v: b.v })));
-  if (stats) await ctx.runMutation(internal.data.storePriceStats, { ticker: t, stats });
+  if (stats) {
+    // The same causal features the calibration measures, read at today's bar.
+    // Storing them here is what lets the allocator apply measured weights
+    // instead of the dip state alone.
+    const buckets: Record<string, string> = {};
+    for (const f of featuresAt(ohlcv)) buckets[f.signal] = f.bucket;
+
+    await ctx.runMutation(internal.data.storePriceStats, {
+      ticker: t,
+      stats: {
+        ...stats,
+        dipState: dip.state,
+        dipScore: dip.score,
+        dipDrawdown: dip.drawdown,
+        dipEvidence: dip.evidence,
+        upDownVolume: dip.upDownVolume,
+        sellingPressure: dip.sellingPressure,
+        signalBuckets: buckets,
+      },
+    });
+  }
 
   // ---- profile ------------------------------------------------------
   try {
@@ -369,6 +393,21 @@ async function doRefreshTicker(
     verdict: result.verdict,
     changesSincePrior: diffScores(prior, result),
   });
+
+  // A dip that is turning up while the name is already cheap is the highest-
+  // value moment this system can flag, so it gets its own signal.
+  if (dip.state === "reversing" && (valuation?.upside ?? -1) > 0) {
+    await ctx.runMutation(internal.data.fireAlert, {
+      ticker: t,
+      type: "DIP_REVERSING",
+      severity: "high",
+      title: `${t}: pullback turning up`,
+      detail:
+        `Selling pressure fading while ${valuation?.upside}% below fair value — ${dip.evidence}.`,
+      payload: dip,
+      reArmDays: 20,
+    });
+  }
 
   const alertsFired = await evaluateAlerts(
     ctx,

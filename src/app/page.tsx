@@ -3,6 +3,7 @@
 import { useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { StockCard, type CardAlert } from "@/components/stock-card";
+import { DcaWidget } from "@/components/dca-widget";
 import { visibleAlerts, type NotifyPrefs, type Severity } from "@/lib/notify";
 
 const RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2 };
@@ -38,7 +39,9 @@ export default function Dashboard() {
   });
 
   return (
-    <div>
+    <div className="space-y-5">
+      {rows && rows.length > 0 && <DcaWidget />}
+
       {rows === undefined && <p className="text-[12px] text-[var(--muted)]">Loading…</p>}
 
       {rows && rows.length === 0 && (

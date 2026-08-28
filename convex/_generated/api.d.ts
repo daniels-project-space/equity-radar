@@ -9,10 +9,15 @@
  */
 
 import type * as alerts from "../alerts.js";
+import type * as allocation from "../allocation.js";
 import type * as crons from "../crons.js";
 import type * as data from "../data.js";
+import type * as discovery from "../discovery.js";
 import type * as ingest from "../ingest.js";
 import type * as journal from "../journal.js";
+import type * as lib_allocator from "../lib/allocator.js";
+import type * as lib_calibrate from "../lib/calibrate.js";
+import type * as lib_dip from "../lib/dip.js";
 import type * as lib_earningsRelease from "../lib/earningsRelease.js";
 import type * as lib_llm from "../lib/llm.js";
 import type * as lib_metrics from "../lib/metrics.js";
@@ -20,10 +25,13 @@ import type * as lib_moat from "../lib/moat.js";
 import type * as lib_prices from "../lib/prices.js";
 import type * as lib_scoring from "../lib/scoring.js";
 import type * as lib_sec from "../lib/sec.js";
+import type * as lib_signals from "../lib/signals.js";
+import type * as lib_simulate from "../lib/simulate.js";
 import type * as lib_valuation from "../lib/valuation.js";
 import type * as notify from "../notify.js";
 import type * as pushActions from "../pushActions.js";
 import type * as settings from "../settings.js";
+import type * as strategyActions from "../strategyActions.js";
 import type * as universe from "../universe.js";
 import type * as watchlist from "../watchlist.js";
 
@@ -35,10 +43,15 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   alerts: typeof alerts;
+  allocation: typeof allocation;
   crons: typeof crons;
   data: typeof data;
+  discovery: typeof discovery;
   ingest: typeof ingest;
   journal: typeof journal;
+  "lib/allocator": typeof lib_allocator;
+  "lib/calibrate": typeof lib_calibrate;
+  "lib/dip": typeof lib_dip;
   "lib/earningsRelease": typeof lib_earningsRelease;
   "lib/llm": typeof lib_llm;
   "lib/metrics": typeof lib_metrics;
@@ -46,10 +59,13 @@ declare const fullApi: ApiFromModules<{
   "lib/prices": typeof lib_prices;
   "lib/scoring": typeof lib_scoring;
   "lib/sec": typeof lib_sec;
+  "lib/signals": typeof lib_signals;
+  "lib/simulate": typeof lib_simulate;
   "lib/valuation": typeof lib_valuation;
   notify: typeof notify;
   pushActions: typeof pushActions;
   settings: typeof settings;
+  strategyActions: typeof strategyActions;
   universe: typeof universe;
   watchlist: typeof watchlist;
 }>;

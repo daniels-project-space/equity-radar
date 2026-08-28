@@ -24,6 +24,7 @@ import {
   scoreColor,
 } from "@/lib/format";
 import { SEVERITY_COLOR, type Severity } from "@/lib/notify";
+import { DIP_LABEL, DIP_COLOR } from "@/lib/dip-labels";
 import { ValuationLadder } from "@/components/valuation-ladder";
 import {
   MethodBars,
@@ -114,6 +115,16 @@ export default function CompanyPage() {
               </>
             )}
             {m?.moatSummary}
+            {p?.dipState && p.dipState !== "none" && (
+              <>
+                {" "}
+                <span style={{ color: DIP_COLOR[p.dipState] }}>
+                  {DIP_LABEL[p.dipState]}
+                  {p.dipState !== "noVolume" && ` (${p.dipScore}/100)`}
+                </span>
+                {p.dipEvidence && <span> — {p.dipEvidence}.</span>}
+              </>
+            )}
             {isStale(m?.latestPeriodEnd) && (
               <span className="text-[var(--warn)]"> Filings lag — through {m?.latestPeriodEnd}.</span>
             )}

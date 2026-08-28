@@ -20,6 +20,16 @@ crons.cron("weekly universe refresh", "17 3 * * 0", internal.ingest.refreshUnive
 /** A fresh 10-K/10-Q should not wait for tomorrow's sweep. */
 crons.interval("poll filings", { hours: 6 }, internal.ingest.pollFilings, {});
 
+/** Records the day's DCA recommendation, then re-runs the rule simulation. */
+crons.cron("snapshot allocation", "10 6 * * 1-5", internal.strategyActions.snapshotAllocation, {});
+crons.cron("run strategy simulation", "25 6 * * 1-5", internal.strategyActions.runSimCron, {});
+
+/** Re-measures what each dip state was actually worth, and re-tunes from it. */
+crons.cron("calibrate indicators", "40 2 * * 0", internal.strategyActions.calibrateCron, {});
+
+/** Fills thin peer groups from the full SEC universe, a few names per run. */
+crons.cron("discover peers", "50 2 * * *", internal.strategyActions.discoverPeers, {});
+
 /** Benchmark series, needed before outcomes can be scored as alpha. */
 crons.cron("refresh benchmark", "20 22 * * 1-5", internal.pushActions.refreshBenchmark, {});
 

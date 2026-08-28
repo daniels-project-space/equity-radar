@@ -71,8 +71,43 @@ export default defineSchema({
     /** Denormalized 30-day close series so the card grid needs one query, not
      *  a full price-table scan per ticker on every reactive re-render. */
     spark30: v.optional(v.array(v.number())),
+    /** Buy-the-dip read from price + volume structure. See lib/dip.ts. */
+    dipState: v.optional(v.string()),
+    dipScore: v.optional(v.number()),
+    dipDrawdown: v.optional(v.number()),
+    dipEvidence: v.optional(v.string()),
+    upDownVolume: v.optional(v.number()),
+    sellingPressure: v.optional(v.number()),
+    /** Causal signal buckets at the latest bar — see lib/signals.ts. The
+     *  allocator looks these up against measured multipliers. */
+    signalBuckets: v.optional(v.record(v.string(), v.string())),
     updatedAt: v.number(),
   }).index("by_ticker", ["ticker"]),
+
+  /** Daily DCA recommendation, kept so the advice itself has a history. */
+  allocations: defineTable({
+    date: v.string(),
+    slices: v.array(
+      v.object({
+        ticker: v.string(),
+        name: v.optional(v.string()),
+        weight: v.number(),
+        conviction: v.number(),
+        reason: v.string(),
+      })
+    ),
+    cash: v.number(),
+    headline: v.string(),
+    rejected: v.array(v.object({ ticker: v.string(), reason: v.string() })),
+    createdAt: v.number(),
+  }).index("by_date", ["date"]),
+
+  /** Latest rule-simulation output, recomputed nightly. Singleton by key. */
+  simulations: defineTable({
+    key: v.string(),
+    result: v.any(),
+    computedAt: v.number(),
+  }).index("by_key", ["key"]),
 
   /** One row per fiscal quarter per ticker. Merged from XBRL + press release. */
   fundamentals_q: defineTable({
@@ -341,6 +376,18 @@ export default defineSchema({
   })
     .index("by_ticker", ["ticker"])
     .index("by_asymmetry", ["asymmetry"]),
+
+  /**
+   * Companies pulled in automatically to make peer comparison real. Scored
+   * like anything else, but deliberately not on the watchlist — they raise no
+   * alerts and never enter the DCA allocation.
+   */
+  discovered: defineTable({
+    ticker: v.string(),
+    discoveredFor: v.array(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_ticker", ["ticker"]),
 
   themes: defineTable({
     slug: v.string(),

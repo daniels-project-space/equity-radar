@@ -4,13 +4,20 @@ import Link from "next/link";
 import { Sparkline } from "./sparkline";
 import { usd, signedPct, num, ACTION_COLOR, VERDICT_COLOR, scoreColor, isStale } from "@/lib/format";
 import { SEVERITY_COLOR, type Severity } from "@/lib/notify";
+import { DIP_LABEL, DIP_COLOR } from "@/lib/dip-labels";
 
 export type CardAlert = { _id: string; type: string; severity: Severity; title: string };
 
 type Card = {
   ticker: string;
   name: string;
-  priceStats?: { last?: number; prevClose?: number; spark30?: number[] } | null;
+  priceStats?: {
+    last?: number;
+    prevClose?: number;
+    spark30?: number[];
+    dipState?: string;
+    dipScore?: number;
+  } | null;
   metrics?: { moatTrend?: number; latestPeriodEnd?: string } | null;
   score?: { asymmetry?: number; verdict?: string } | null;
   bands?: { currentBand?: string; upside?: number; bands?: { label: string; action: string }[] } | null;
@@ -96,6 +103,14 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
           {verdict.replace(/_/g, " ")}
         </span>
         <div className="flex items-center gap-2 text-[11px]">
+          {p?.dipState && p.dipState !== "none" && p.dipState !== "noVolume" && (
+            <span
+              style={{ color: DIP_COLOR[p.dipState] }}
+              title={`Dip read: ${DIP_LABEL[p.dipState]} (${p.dipScore ?? 0}/100)`}
+            >
+              {DIP_LABEL[p.dipState]}
+            </span>
+          )}
           {zoneLabel && (
             <span style={{ color: zoneColor }} title="Current valuation zone">
               {zoneLabel}

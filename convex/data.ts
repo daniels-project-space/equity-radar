@@ -48,6 +48,23 @@ export const barsFor = internalQuery({
   },
 });
 
+/** Full OHLCV — the dip detector needs highs, lows and volume, not just closes. */
+export const fullBarsFor = internalQuery({
+  args: { ticker: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { ticker, limit }) => {
+    const rows = await ctx.db
+      .query("prices_daily")
+      .withIndex("by_ticker", (i) => i.eq("ticker", ticker))
+      .collect();
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+    // The dip read needs ~65 sessions; the simulation needs its 200-day
+    // warm-up plus the whole test window, so the caller says how far back.
+    return rows
+      .slice(-(limit ?? 260))
+      .map((r) => ({ date: r.date, o: r.o, h: r.h, l: r.l, c: r.c, v: r.v }));
+  },
+});
+
 export const metricsFor = internalQuery({
   args: { tickers: v.array(v.string()) },
   handler: async (ctx, { tickers }) => {
@@ -147,6 +164,13 @@ export const storePriceStats = internalMutation({
       ret12m: v.optional(v.number()),
       advUsd: v.optional(v.number()),
       spark30: v.optional(v.array(v.number())),
+      dipState: v.optional(v.string()),
+      dipScore: v.optional(v.number()),
+      dipDrawdown: v.optional(v.number()),
+      dipEvidence: v.optional(v.string()),
+      upDownVolume: v.optional(v.number()),
+      sellingPressure: v.optional(v.number()),
+      signalBuckets: v.optional(v.record(v.string(), v.string())),
     }),
   },
   handler: async (ctx, { ticker, stats }) => {
