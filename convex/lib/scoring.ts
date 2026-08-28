@@ -16,7 +16,9 @@ export type ScoreInputs = {
   revYoY?: number; // 0.45 = +45%
   revAccel?: number; // percentage points, revYoY - revYoYPrior
   epsYoY?: number;
-  guidanceDelta?: number; // new guide midpoint vs prior, as a fraction
+  guidanceDelta?: number; // guided growth minus growth just reported
+  /** Growth management is guiding to for the coming quarter. */
+  guidedGrowth?: number;
   // quality
   grossMarginPct?: number;
   grossMarginDeltaYoY?: number; // bps
@@ -96,16 +98,23 @@ function weigh(parts: { key: string; raw: number | null; norm: number | null; we
   return { score: clamp(score), parts, missing };
 }
 
+/**
+ * Growth is scored on what happened *and* what management says happens next.
+ * Guidance is the only forward input that is neither a model nor a purchased
+ * estimate, so it carries real weight — both its level and whether it implies
+ * acceleration against the quarter just reported.
+ */
 function growthBucket(i: ScoreInputs): Bucket {
   return weigh([
-    { key: "revYoY", raw: i.revYoY ?? null, norm: norm(i.revYoY, -0.1, 0.6), weight: 0.4 },
-    { key: "revAccel", raw: i.revAccel ?? null, norm: norm(i.revAccel, -10, 15), weight: 0.25 },
-    { key: "epsYoY", raw: i.epsYoY ?? null, norm: norm(i.epsYoY, -0.2, 1.0), weight: 0.25 },
+    { key: "revYoY", raw: i.revYoY ?? null, norm: norm(i.revYoY, -0.1, 0.6), weight: 0.3 },
+    { key: "revAccel", raw: i.revAccel ?? null, norm: norm(i.revAccel, -10, 15), weight: 0.2 },
+    { key: "epsYoY", raw: i.epsYoY ?? null, norm: norm(i.epsYoY, -0.2, 1.0), weight: 0.2 },
+    { key: "guidedGrowth", raw: i.guidedGrowth ?? null, norm: norm(i.guidedGrowth, -0.1, 0.6), weight: 0.18 },
     {
       key: "guidanceDelta",
       raw: i.guidanceDelta ?? null,
-      norm: norm(i.guidanceDelta, -0.05, 0.1),
-      weight: 0.1,
+      norm: norm(i.guidanceDelta, -0.15, 0.15),
+      weight: 0.12,
     },
   ]);
 }

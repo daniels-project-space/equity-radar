@@ -191,6 +191,8 @@ export default defineSchema({
     peerRet3m: v.optional(v.number()),
     peerRevYoY: v.optional(v.number()),
     peerCount: v.optional(v.number()),
+    /** Named closest competitors, ranked by size similarity within the industry. */
+    peerRows: v.optional(v.any()),
     quartersAvailable: v.number(),
     /** Period end of the newest quarter we have. Foreign private issuers file
      *  20-F/6-K and can lag domestic filers by two or three quarters, so this

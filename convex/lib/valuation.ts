@@ -200,6 +200,10 @@ export function valuate(i: ValuationInput): Valuation | null {
     anchorLabel = `${r2(anchor)}x earnings`;
   }
 
+  // Round once, here, so every derived label reads cleanly instead of leaking
+  // a full float into the UI.
+  anchor = r2(anchor);
+
   const methods: Method[] = [];
   const add = (key: string, label: string, perShare: number | undefined, basis: string) => {
     const w = WEIGHTS[archetype][key];
@@ -209,7 +213,7 @@ export function valuate(i: ValuationInput): Valuation | null {
 
   // --- earnings multiple ---
   const eps = i.fwdEps && i.fwdEps > 0 ? i.fwdEps : i.epsTtm;
-  const peTarget = archetype === "earnings" ? anchor : DEFAULTS.pe;
+  const peTarget = r2(archetype === "earnings" ? anchor : DEFAULTS.pe);
   if (eps && eps > 0) {
     add("epsMultiple", "Earnings multiple", eps * peTarget, `${peTarget}x on $${eps.toFixed(2)} EPS`);
   }
@@ -235,7 +239,7 @@ export function valuate(i: ValuationInput): Valuation | null {
       "evEbit",
       "EV / operating income",
       (DEFAULTS.evEbit * i.opIncomeTtm + netCash) / shares,
-      `${DEFAULTS.evEbit}x EBIT plus net cash`
+      `${r2(DEFAULTS.evEbit)}x EBIT plus net cash`
     );
   }
 
@@ -251,7 +255,7 @@ export function valuate(i: ValuationInput): Valuation | null {
 
   // --- EV/Sales ---
   if (i.revenueTtm && i.revenueTtm > 0) {
-    const evsTarget = archetype === "preProfit" ? anchor : DEFAULTS.evSales;
+    const evsTarget = r2(archetype === "preProfit" ? anchor : DEFAULTS.evSales);
     add(
       "evSales",
       "EV / sales",

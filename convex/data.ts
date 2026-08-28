@@ -544,6 +544,60 @@ export const markRelease = internalMutation({
   },
 });
 
+/**
+ * Named peer snapshots for the competitor table.
+ *
+ * "Closest" is same-industry ranked by size similarity — a $780B chip designer
+ * and a $300M substrate maker share a SIC code but are not competitors in any
+ * useful sense. Log market-cap distance ranks them honestly.
+ */
+export const peerSnapshots = internalQuery({
+  args: { tickers: v.array(v.string()), ownMarketCap: v.optional(v.number()) },
+  handler: async (ctx, { tickers, ownMarketCap }) => {
+    const rows = [];
+    for (const t of tickers) {
+      const m = await ctx.db
+        .query("metrics")
+        .withIndex("by_ticker", (i) => i.eq("ticker", t))
+        .unique();
+      if (!m) continue;
+      const u = await ctx.db
+        .query("universe")
+        .withIndex("by_ticker", (i) => i.eq("ticker", t))
+        .unique();
+      const score = await ctx.db
+        .query("scores")
+        .withIndex("by_ticker", (i) => i.eq("ticker", t))
+        .order("desc")
+        .first();
+      const band = await ctx.db
+        .query("buy_bands")
+        .withIndex("by_ticker", (i) => i.eq("ticker", t))
+        .unique();
+
+      const distance =
+        ownMarketCap && m.marketCap && ownMarketCap > 0 && m.marketCap > 0
+          ? Math.abs(Math.log10(m.marketCap / ownMarketCap))
+          : 99;
+
+      rows.push({
+        ticker: t,
+        name: u?.name ?? t,
+        marketCap: m.marketCap,
+        revYoY: m.revYoY,
+        grossMarginPct: m.grossMarginPct,
+        fwdPe: m.fwdPe ?? m.peTtm,
+        moatScore: m.moatScore,
+        asymmetry: score?.asymmetry,
+        upside: band?.upside,
+        distance,
+      });
+    }
+    rows.sort((a, b) => a.distance - b.distance);
+    return rows.slice(0, 6);
+  },
+});
+
 export const recentAlertsForJournal = internalQuery({
   args: {},
   handler: async (ctx) => ctx.db.query("alerts").withIndex("by_firedAt").order("desc").take(200),

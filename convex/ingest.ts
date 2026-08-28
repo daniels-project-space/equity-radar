@@ -204,6 +204,7 @@ async function doRefreshTicker(
   let peerRet3m: number | undefined;
   let peerRevYoY: number | undefined;
   let peerCount = 0;
+  let peerRows: unknown[] = [];
   const universeRow = await ctx.runQuery(internal.data.universeRow, { ticker: t });
   if (universeRow?.sicCode) {
     const peers = await ctx.runMutation(internal.data.rebuildSicPeers, {
@@ -236,12 +237,19 @@ async function doRefreshTicker(
     } else {
       notes.push(`only ${peers.length} scored peers in SIC ${universeRow.sicCode} — peer medians omitted`);
     }
+    if (peers.length > 0) {
+      peerRows = await ctx.runQuery(internal.data.peerSnapshots, {
+        tickers: peers,
+        ownMarketCap: metrics.marketCap,
+      });
+    }
   }
 
   // ---- score (after valuation, which it depends on) ------------------
   const prior = await ctx.runQuery(internal.data.priorScore, { ticker: t });
   const scoreInputs = {
     guidanceDelta,
+    guidedGrowth,
     revYoY: metrics.revYoY,
     revAccel: metrics.revAccel,
     epsYoY: metrics.epsYoY,
@@ -325,6 +333,7 @@ async function doRefreshTicker(
       peerRet3m,
       peerRevYoY,
       peerCount,
+      peerRows,
       archetype: valuation?.archetype,
       moatScore: moat.score,
       moatTrend: moat.direction,

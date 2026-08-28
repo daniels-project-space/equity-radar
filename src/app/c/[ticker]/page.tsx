@@ -24,10 +24,17 @@ import {
   scoreColor,
 } from "@/lib/format";
 import { SEVERITY_COLOR, type Severity } from "@/lib/notify";
+import { ValuationLadder } from "@/components/valuation-ladder";
+import {
+  MethodBars,
+  PillarBars,
+  Projections,
+  PeerTable,
+  type Method,
+  type Pillar,
+  type PeerRow,
+} from "@/components/insight-panels";
 import { RefreshCw, Star, StarOff } from "lucide-react";
-
-type Pillar = { key: string; label: string; level?: number; trend?: number; evidence: string };
-type Method = { key: string; label: string; perShare: number; weight: number; basis: string };
 
 export default function CompanyPage() {
   const params = useParams<{ ticker: string }>();
@@ -159,99 +166,93 @@ export default function CompanyPage() {
         )}
       </div>
 
+      {/* ---- the valuation, as a single strip ---- */}
+      {bandList.length > 0 && (
+        <div className="panel px-4 pb-3 pt-4">
+          <ValuationLadder
+            bands={bandList}
+            price={p?.last}
+            fairValue={b?.fairValue}
+            currentBand={b?.currentBand}
+          />
+          {b?.marginOfSafety !== undefined && (
+            <p className="mt-1 text-[10px] text-[var(--muted)]">
+              {Math.round(b.marginOfSafety * 100)}% margin of safety — the zones widen automatically
+              when the valuation methods disagree.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* ---- three answers, side by side ---- */}
       <div className="grid gap-3 lg:grid-cols-3">
         <Column title="What it's worth">
-          {methods.length === 0 && <Muted>Not computable from filed data.</Muted>}
-          {methods.map((mt) => (
-            <Row key={mt.key} label={mt.label} hint={`${Math.round(mt.weight * 100)}%`}>
-              {usd(mt.perShare)}
-            </Row>
-          ))}
-          {b?.currentBand && (
-            <Row label="Zone" strong>
-              <span
-                style={{
-                  color:
-                    ACTION_COLOR[
-                      bandList.find((x: { label: string }) => x.label === b.currentBand)?.action ?? ""
-                    ],
-                }}
-              >
-                {b.currentBand}
-              </span>
-            </Row>
-          )}
-          {b?.marginOfSafety !== undefined && (
-            <Muted>
-              {Math.round(b.marginOfSafety * 100)}% margin of safety — it widens automatically when
-              the methods disagree.
-            </Muted>
-          )}
+          <MethodBars methods={methods} price={p?.last} />
         </Column>
 
         <Column title="How good it is">
-          {pillars.slice(0, 4).map((pl) => (
-            <Row key={pl.key} label={pl.label}>
-              <span style={{ color: scoreColor(pl.level) }}>
-                {pl.level === undefined ? "—" : Math.round(pl.level)}
-              </span>
-              {pl.trend !== undefined && (
-                <span
-                  className="ml-1"
-                  style={{
-                    color:
-                      pl.trend >= 15 ? "var(--good)" : pl.trend <= -15 ? "var(--bad)" : "var(--muted)",
-                  }}
-                >
-                  {pl.trend >= 15 ? "↑" : pl.trend <= -15 ? "↓" : "→"}
-                </span>
-              )}
-            </Row>
-          ))}
-          <Row label="Revenue growth">{signedPct(m?.revYoY)}</Row>
-          <Row label="Dilution">{signedPct(m?.sharesYoY)}</Row>
-          {m?.peerCount !== undefined && m.peerCount >= 3 && m.peerRevYoY !== undefined && (
-            <Muted>Peers grow {signedPct(m.peerRevYoY)} — median of {m.peerCount} companies.</Muted>
-          )}
+          <PillarBars pillars={pillars} />
         </Column>
 
-        <Column title="What's changed">
-          {data.alerts.filter((a) => !a.acknowledgedAt).length === 0 && (
-            <Muted>Nothing has crossed a threshold.</Muted>
-          )}
-          {data.alerts
-            .filter((a) => !a.acknowledgedAt)
-            .slice(0, 5)
-            .map((a) => (
-              <div key={a._id} className="flex items-start gap-2 py-1">
-                <span
-                  className="mt-[6px] h-1 w-1 shrink-0 rounded-full"
-                  style={{ background: SEVERITY_COLOR[a.severity as Severity] }}
-                />
-                <div className="min-w-0">
-                  <p className="text-[11px] leading-snug">
-                    {a.title.replace(`${ticker}: `, "").replace(`${ticker} `, "")}
-                  </p>
-                  <p className="text-[10px] leading-snug text-[var(--muted)]">{a.detail}</p>
-                </div>
-              </div>
-            ))}
-          {m?.guidancePeriod && (
-            <Muted>
-              Guides {m.guidancePeriod} to {bigUsd(m.guidanceRevLow)}
-              {m.guidanceRevHigh !== m.guidanceRevLow ? `–${bigUsd(m.guidanceRevHigh)}` : ""}
-              {m.guidedGrowth !== undefined && (
-                <>
-                  {" "}
-                  ({signedPct(m.guidedGrowth)} implied,{" "}
-                  {(m.guidanceDelta ?? 0) >= 0 ? "accelerating" : "decelerating"})
-                </>
-              )}
-            </Muted>
-          )}
+        <Column title="What's next">
+          <Projections
+            revYoY={m?.revYoY}
+            guidedGrowth={m?.guidedGrowth}
+            guidancePeriod={m?.guidancePeriod}
+            guidanceRevLow={m?.guidanceRevLow}
+            guidanceRevHigh={m?.guidanceRevHigh}
+            guidanceEpsLow={m?.guidanceEpsLow}
+            guidanceEpsHigh={m?.guidanceEpsHigh}
+            fwdPe={m?.fwdPe}
+            peTtm={m?.peTtm}
+            fwdEpsBasis={m?.fwdEpsBasis}
+            sourceUrl={m?.guidanceSourceUrl}
+          />
         </Column>
       </div>
+
+      {/* ---- competitors ---- */}
+      <Column title="Closest competitors">
+        <PeerTable
+          rows={(m?.peerRows ?? []) as PeerRow[]}
+          self={{
+            ticker,
+            name: data.universe?.name ?? ticker,
+            marketCap: m?.marketCap,
+            revYoY: m?.revYoY,
+            grossMarginPct: m?.grossMarginPct,
+            fwdPe: m?.fwdPe ?? m?.peTtm,
+            moatScore: m?.moatScore,
+            asymmetry: s?.asymmetry,
+            upside: b?.upside,
+          }}
+        />
+      </Column>
+
+      {/* ---- open signals ---- */}
+      {data.alerts.filter((a) => !a.acknowledgedAt).length > 0 && (
+        <Column title="What's changed">
+          <div className="space-y-1.5">
+            {data.alerts
+              .filter((a) => !a.acknowledgedAt)
+              .slice(0, 6)
+              .map((a) => (
+                <div key={a._id} className="flex items-start gap-2">
+                  <span
+                    className="mt-[6px] h-1 w-1 shrink-0 rounded-full"
+                    style={{ background: SEVERITY_COLOR[a.severity as Severity] }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[11px] leading-snug">
+                      {a.title.replace(`${ticker}: `, "").replace(`${ticker} `, "")}
+                    </p>
+                    <p className="text-[10px] leading-snug text-[var(--muted)]">{a.detail}</p>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </Column>
+      )}
 
       {/* ---- everything else, on request ---- */}
       <div className="panel px-4">
