@@ -66,7 +66,7 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
   const top = alerts[0];
 
   return (
-    <div className="relative">
+    <div className="group relative">
       {/* Removing a tile was buried on the company page, which is a long way to
           go to undo an add. The confirm step is here because the grid is the
           one place a stray click is cheap to make and annoying to reverse. */}
@@ -94,7 +94,7 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
         <button
           onClick={(e) => { e.preventDefault(); setConfirming(true); }}
           aria-label={`Stop tracking ${row.ticker}`}
-          className="absolute right-1.5 top-1.5 z-10 rounded p-1 text-[var(--muted)] opacity-0 transition hover:bg-[var(--line)] hover:text-[var(--text)] focus-visible:opacity-100 group-hover:opacity-100"
+          className="absolute right-1.5 top-1.5 z-10 rounded p-1 text-[var(--muted)] opacity-60 transition hover:bg-[var(--line)] hover:text-[var(--text)] focus-visible:opacity-100 group-hover:opacity-100"
         >
           <X size={12} />
         </button>
@@ -102,7 +102,7 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
 
     <Link
       href={`/c/${row.ticker}`}
-      className="panel group flex flex-col gap-3 p-4 transition hover:border-[var(--accent)]/40"
+      className="panel flex flex-col gap-3 p-4 transition hover:border-[var(--accent)]/40"
       // Only critical earns a border. Most alerts are "high", so colouring
       // those too made every card look urgent, which is the same as none of
       // them being urgent.

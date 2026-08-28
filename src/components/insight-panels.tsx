@@ -435,3 +435,80 @@ function ExpectationRateBar({
     </div>
   );
 }
+
+export type ProjectionRow = {
+  years: number;
+  total: number;
+  annualised: number;
+  low: number;
+  high: number;
+};
+
+/**
+ * Expected return from today's price over one, three and five years.
+ *
+ * Shown as a range rather than a number because the spread is the honest part:
+ * the difference between the low and high cases is mostly the question of
+ * whether the discount ever closes, which no model here can answer.
+ */
+export function ReturnOutlook({ rows, price }: { rows: ProjectionRow[]; price?: number }) {
+  const span = Math.max(...rows.map((r) => Math.abs(r.high)), 10);
+
+  return (
+    <section className="panel p-4">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          If you bought at {price ? usd(price) : "today's price"}
+        </h2>
+        <span className="text-[10px] text-[var(--muted)]">total return, range</span>
+      </div>
+
+      <div className="space-y-2.5">
+        {rows.map((r) => (
+          <div key={r.years} className="flex items-center gap-3">
+            <span className="w-9 shrink-0 text-[11px] text-[var(--muted)]">{r.years}y</span>
+            <div className="relative h-4 flex-1 rounded-sm bg-[var(--line)]">
+              <div
+                className="absolute inset-y-0 rounded-sm opacity-40"
+                style={{
+                  left: `${((Math.min(r.low, 0) + span) / (2 * span)) * 100}%`,
+                  width: `${((Math.max(r.high, r.low) - Math.min(r.low, r.high)) / (2 * span)) * 100}%`,
+                  background: r.total >= 0 ? "var(--good)" : "var(--bad)",
+                }}
+              />
+              <div
+                className="absolute inset-y-0 w-[2px]"
+                style={{
+                  left: `${((r.total + span) / (2 * span)) * 100}%`,
+                  background: r.total >= 0 ? "var(--good)" : "var(--bad)",
+                }}
+              />
+              <div
+                className="absolute inset-y-0 w-px bg-[var(--muted)] opacity-50"
+                style={{ left: "50%" }}
+              />
+            </div>
+            <span
+              className="tabular w-16 shrink-0 text-right text-[12px] font-semibold"
+              style={{ color: r.total >= 0 ? "var(--good)" : "var(--bad)" }}
+            >
+              {r.total >= 0 ? "+" : ""}
+              {r.total}%
+            </span>
+            <span className="tabular w-14 shrink-0 text-right text-[10px] text-[var(--muted)]">
+              {r.annualised >= 0 ? "+" : ""}
+              {r.annualised}%/yr
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-3 border-t border-[var(--line)] pt-2 text-[10px] leading-relaxed text-[var(--muted)]">
+        A scenario, not a forecast. It assumes fair value compounds at the growth this business has
+        actually delivered, capped by its moat, and that the gap to fair value closes over about
+        three years. The shaded range is the difference between the discount never closing and it
+        closing with growth at the top of its range — which is the part no model here can settle.
+      </p>
+    </section>
+  );
+}

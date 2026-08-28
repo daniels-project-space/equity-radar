@@ -29,7 +29,14 @@ export const TONE_COLOR: Record<Tone, string> = {
 
 type Input = {
   ticker: string;
-  price?: { last?: number; prevClose?: number; ret3m?: number; drawdownFromHigh?: number };
+  price?: {
+    last?: number;
+    prevClose?: number;
+    ret3m?: number;
+    drawdownFromHigh?: number;
+    wk52High?: number;
+    wk52Low?: number;
+  };
   bands?: {
     fairValue?: number;
     upside?: number;
@@ -171,7 +178,39 @@ export function keyFacts(d: Input): Fact[] {
     });
   }
 
-  // 7. Leverage, only when it constrains the decision.
+  // 7. Position against the 52-week high.
+  //
+  // This is here because it is the best-supported pattern found anywhere in
+  // this project, and it points away from buying weakness. George and Hwang
+  // documented that stocks near their 52-week high subsequently outperform
+  // those far from it; this project's own calibration independently put "at
+  // high" as the strongest of 37 buckets tested (+5.0pp over baseline, 67%
+  // positive); and pooled across the watchlist, entries taken below the
+  // 200-day trend returned a median 10.8% over 120 days against 20.9% for
+  // entries above it.
+  //
+  // It is reported as context rather than instruction: none of it clears
+  // statistical significance on this sample, and it split 7 names to 7 on
+  // which side won.
+  if (price && d.price?.wk52High && d.price.wk52High > 0) {
+    const near = price / d.price.wk52High;
+    const off = (1 - near) * 100;
+    if (near >= 0.95) {
+      out.push({
+        tone: "neutral",
+        weight: 52,
+        text: `Trading within ${off < 1 ? "a percent" : `${off.toFixed(0)}%`} of its 52-week high — historically the side of the range that has done better, though not reliably enough to act on alone.`,
+      });
+    } else if (off >= 25) {
+      out.push({
+        tone: "warn",
+        weight: 54,
+        text: `It sits ${off.toFixed(0)}% below its 52-week high. Deep discounts have not been where returns came from on this watchlist — buying strength beat buying weakness by roughly 10 points over 120 days.`,
+      });
+    }
+  }
+
+  // 8. Leverage, only when it constrains the decision.
   if (m?.netDebtToEbitda !== undefined && m.netDebtToEbitda > 3) {
     out.push({
       tone: "warn",
@@ -180,7 +219,7 @@ export function keyFacts(d: Input): Fact[] {
     });
   }
 
-  // 8. How much to trust any of the above.
+  // 9. How much to trust any of the above.
   if (b?.confidence === "low") {
     out.push({
       tone: "warn",

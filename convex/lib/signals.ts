@@ -102,7 +102,51 @@ export function featuresAt(window: DipBar[]): Bucketed[] {
     });
   }
 
-  // The existing dip state machine, tested on the same footing as the rest.
+  // Nearness to the 52-week high (George & Hwang, "The 52-Week High and
+  // Momentum Investing"). Their finding is that stocks trading close to their
+  // own 52-week high subsequently outperform those far from it, and that this
+  // beats conventional return momentum — the opposite of buy-the-dip. It is
+  // included because it is the strongest published contradiction of the
+  // premise this project started from, and it deserves the same test as
+  // everything else rather than an argument.
+  const win52 = window.slice(-252);
+  if (win52.length >= 120) {
+    const hi52 = Math.max(...win52.map((b) => b.h || b.c));
+    if (hi52 > 0) {
+      const near = px / hi52;
+      out.push({
+        signal: "near52wHigh",
+        bucket:
+          near >= 0.98 ? "at high" : near >= 0.9 ? "within 10%" : near >= 0.75 ? "10-25% below" : near >= 0.5 ? "25-50% below" : "far below",
+      });
+    }
+  }
+
+  // Connors RSI(2): above the 200-day trend, below the 5-day, RSI(2) under 10.
+  // A short sharp pullback inside an intact uptrend. Independent testing in
+  // 2026 found it alive but modest out-of-sample (Sharpe ~0.56 on daily bars),
+  // with the trend filter contributing drawdown control rather than return.
+  {
+    const sma200 = sma(window, 200);
+    const sma5 = sma(window, 5);
+    const r2 = rsi(window, 2);
+    if (sma200 && sma5 && r2 !== null) {
+      const aboveTrend = px > sma200;
+      const stretched = px < sma5;
+      out.push({
+        signal: "connors",
+        bucket: !aboveTrend
+          ? "below trend"
+          : r2 < 10 && stretched
+            ? "oversold setup"
+            : r2 < 30
+              ? "mild pullback"
+              : "no setup",
+      });
+    }
+  }
+
+  // The dip state machine, tested on the same footing as the rest.
   const dip = detectDip(window);
   if (dip.state !== "noVolume") out.push({ signal: "dipState", bucket: dip.state });
 

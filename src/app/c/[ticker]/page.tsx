@@ -8,6 +8,7 @@ import { PriceChart } from "@/components/price-chart";
 import { Disclosure } from "@/components/disclosure";
 import { keyFacts, TONE_COLOR } from "@/lib/key-facts";
 import { signalLabel } from "@/lib/signal-label";
+import { projectReturns } from "@/lib/projection";
 import {
   usd,
   bigUsd,
@@ -34,6 +35,7 @@ import {
   Projections,
   PeerTable,
   ExpectationsPanel,
+  ReturnOutlook,
   type Method,
   type Pillar,
   type PeerRow,
@@ -67,6 +69,17 @@ export default function CompanyPage() {
   // lines cannot contradict the chart or outlive the model that wrote them.
   const facts = keyFacts({ ticker, price: p, bands: b, metrics: m, score: s });
   const sig = signalLabel(s?.verdict, p?.dipState, p?.dipScore);
+  // Only on the detail view — a tile has room for what a stock is, not for a
+  // five-year scenario with a range attached.
+  const outlook = projectReturns({
+    price: p?.last,
+    fairValue: b?.fairValue,
+    justifiedGrowth:
+      m?.expectations?.justifiedGrowth === undefined
+        ? undefined
+        : m.expectations.justifiedGrowth / 100,
+    dispersion: b?.dispersion,
+  });
 
   async function doRefresh() {
     if (!data?.universe) return;
@@ -212,6 +225,7 @@ export default function CompanyPage() {
         <Column title="What it's worth">
           <MethodBars methods={methods} price={p?.last} />
           {m?.expectations && <ExpectationsPanel data={m.expectations} />}
+          {outlook && <ReturnOutlook rows={outlook} price={p?.last} />}
         </Column>
 
         <Column title="How good it is">
