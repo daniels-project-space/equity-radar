@@ -19,7 +19,10 @@ export type Band = {
   multipleHi: number;
 };
 
-type Bar = { date: string; o: number; h: number; l: number; c: number; v: number };
+// o/h/l are optional: the query omits them when they equal the close, which is
+// every bar of a closes-only feed. They are filled from c on the way in so
+// nothing below has to care.
+type Bar = { date: string; o?: number; h?: number; l?: number; c: number; v: number };
 
 const RANGES = [
   { label: "3M", days: 63 },
@@ -339,7 +342,13 @@ export function PriceChart({
       (series as ISeriesApi<"Line">).setData(slice.map((b) => ({ time: b.date, value: b.c })));
     } else {
       (series as ISeriesApi<"Candlestick">).setData(
-        slice.map((b) => ({ time: b.date, open: b.o, high: b.h, low: b.l, close: b.c }))
+        slice.map((b) => ({
+          time: b.date,
+          open: b.o ?? b.c,
+          high: b.h ?? b.c,
+          low: b.l ?? b.c,
+          close: b.c,
+        }))
       );
     }
 

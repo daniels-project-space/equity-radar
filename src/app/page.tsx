@@ -14,7 +14,7 @@ const RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2 };
  * at the top.
  */
 export default function Dashboard() {
-  const rows = useQuery(api.watchlist.list);
+  const rows = useQuery(api.watchlist.listCompact);
   const alerts = useQuery(api.alerts.recent, { limit: 120, unacknowledgedOnly: true });
   const settings = useQuery(api.settings.all);
 

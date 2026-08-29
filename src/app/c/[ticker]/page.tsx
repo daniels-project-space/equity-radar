@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
@@ -54,7 +54,27 @@ export default function CompanyPage() {
   const ticker = (params.ticker ?? "").toUpperCase();
 
   const data = useQuery(api.watchlist.get, { ticker });
-  const bars = useQuery(api.watchlist.priceSeries, { ticker, days: 1300 });
+  const series = useQuery(api.watchlist.priceSeries, { ticker, days: 1300 });
+  // The query is columnar to avoid restating the field names 1,300 times. It is
+  // widened back here, once, so every consumer below keeps working on bars.
+  const bars = useMemo(() => {
+    if (!series?.d) return undefined;
+    const { d, c, o, h, l } = series as {
+      d: string[];
+      c: number[];
+      o?: number[];
+      h?: number[];
+      l?: number[];
+    };
+    return d.map((date, i) => ({
+      date,
+      c: c[i],
+      o: o ? o[i] : c[i],
+      h: h ? h[i] : c[i],
+      l: l ? l[i] : c[i],
+      v: 0,
+    }));
+  }, [series]);
   const cryptoAsset = data?.metrics?.assetType === "crypto" ? ticker.toLowerCase() : undefined;
   const costBasis = useQuery(
     api.watchlist.costBasisSeries,
@@ -148,11 +168,26 @@ export default function CompanyPage() {
               </>
             )}
             <span className="text-[var(--muted)]"> · </span>
+            {/* Crypto has no verdict because it has no filings to score, so the
+                header showed "Not enough data" beside ten years of history. The
+                tiles were fixed for this; the header was missed. */}
             <span
-              style={{ color: sig.fallingKnife ? "var(--warn)" : VERDICT_COLOR[verdict] }}
-              title={sig.hint}
+              style={{
+                color: isCrypto
+                  ? "var(--muted)"
+                  : sig.fallingKnife
+                    ? "var(--warn)"
+                    : VERDICT_COLOR[verdict],
+              }}
+              title={
+                isCrypto
+                  ? "Not scored on filings — this is where it sits against the price the network paid."
+                  : sig.hint
+              }
             >
-              {sig.headline}
+              {isCrypto
+                ? (m?.cycle?.hasOnChain ? (m.cycle.zone ?? "cycle unknown") : "price only")
+                : sig.headline}
             </span>
           </p>
 

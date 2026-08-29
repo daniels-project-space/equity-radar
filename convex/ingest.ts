@@ -368,12 +368,11 @@ async function doRefreshTicker(
   // Measured rather than asserted: a supplier inside someone else's demand
   // curve, or a balance sheet holding an asset, shows up as explained variance
   // against that driver. Nothing in the filings reports it.
-  const drivers: { name: string; bars: { date: string; c: number }[] }[] = [];
-  for (const [name, sym] of [["Bitcoin", "BTC"], ["Nvidia", "NVDA"], ["the S&P 500", "SPY"]]) {
-    if (sym === t) continue;
-    const b = await ctx.runQuery(internal.data.barsFor, { ticker: sym });
-    if (b.length > 200) drivers.push({ name, bars: b.map((x) => ({ date: x.date, c: x.c })) });
-  }
+  // Fetched once per process rather than once per ticker. A sweep of fourteen
+  // names was pulling the full history of bitcoin, Nvidia and the index fourteen
+  // times each — forty-two queries returning identical data, on top of the SEC
+  // and price work the refresh actually exists to do.
+  const drivers = await loadDrivers(ctx, t);
   const linkage = drivers.length
     ? measureLinkage(storedBars.map((b) => ({ date: b.date, c: b.c })), drivers)
     : null;
@@ -1025,6 +1024,36 @@ export const pollFilings = internalAction({
  * is a handful of requests a minute, and a failed quote leaves the previous
  * price in place rather than blanking it.
  */
+/**
+ * Driver histories for the linkage regression, memoised for the life of the
+ * process. They change once a day at most and every ticker in a sweep needs the
+ * same three, so refetching per name is pure waste.
+ */
+type DriverBars = { name: string; bars: { date: string; c: number }[] };
+let driverCache: { at: number; data: DriverBars[] } | null = null;
+
+async function loadDrivers(ctx: any, exclude: string): Promise<DriverBars[]> {
+  const FRESH_MS = 30 * 60_000;
+  if (!driverCache || Date.now() - driverCache.at > FRESH_MS) {
+    const out: DriverBars[] = [];
+    for (const [name, sym] of [["Bitcoin", "BTC"], ["Nvidia", "NVDA"], ["the S&P 500", "SPY"]]) {
+      const b = await ctx.runQuery(internal.data.barsFor, { ticker: sym });
+      if (b.length > 200) {
+        out.push({
+          name,
+          bars: b.map((x: { date: string; c: number }) => ({ date: x.date, c: x.c })),
+          // Carried so a name can be excluded from its own regression.
+          ...{ symbol: sym },
+        } as DriverBars & { symbol: string });
+      }
+    }
+    driverCache = { at: Date.now(), data: out };
+  }
+  return driverCache.data.filter(
+    (d) => (d as DriverBars & { symbol?: string }).symbol !== exclude
+  );
+}
+
 export const refreshQuotes = internalAction({
   args: {},
   handler: async (ctx): Promise<{ updated: number; skipped: number }> => {

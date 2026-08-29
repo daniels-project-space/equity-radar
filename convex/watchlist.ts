@@ -3,7 +3,9 @@ import { query, mutation } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 
 async function latestFor(ctx: any, ticker: string) {
-  const [priceStats, metrics, bands] = await Promise.all([
+  // All four in one batch. The score used to be awaited after the other three
+  // had resolved, which made every row two round trips instead of one.
+  const [priceStats, metrics, bands, score] = await Promise.all([
     ctx.db.query("price_stats").withIndex("by_ticker", (i: any) => i.eq("ticker", ticker)).unique(),
     ctx.db.query("metrics").withIndex("by_ticker", (i: any) => i.eq("ticker", ticker)).unique(),
     ctx.db
@@ -11,16 +13,116 @@ async function latestFor(ctx: any, ticker: string) {
       .withIndex("by_ticker", (i: any) => i.eq("ticker", ticker))
       .order("desc")
       .first(),
+    ctx.db
+      .query("scores")
+      .withIndex("by_ticker", (i: any) => i.eq("ticker", ticker))
+      .order("desc")
+      .first(),
   ]);
-  const score = await ctx.db
-    .query("scores")
-    .withIndex("by_ticker", (i: any) => i.eq("ticker", ticker))
-    .order("desc")
-    .first();
   return { priceStats, metrics, bands, score };
 }
 
 /** Everything the dashboard grid needs, in one round trip. */
+/**
+ * Only the fields a tile renders.
+ *
+ * `list` returned every stored document per row, which for fourteen names came
+ * to 333KB on every load of the grid — and the tile draws almost none of it.
+ * The single largest contributor was a 48-row volume profile per name, at 18%
+ * of the payload, displayed nowhere on the home page. Behind it sat the full
+ * moat pillar breakdown, the peer table, the scenario set, the linkage
+ * regression and the score's bucket detail, none of which a tile shows either.
+ *
+ * Projecting to what is actually rendered cuts the payload by roughly an order
+ * of magnitude, and the detail views already fetch the full documents when a
+ * name is opened. The cost of this shape is that adding a field to the tile
+ * means adding it here too, which is a fair trade for not shipping a
+ * quarter-megabyte to draw fourteen sparklines.
+ */
+export const listCompact = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("watchlist").collect();
+
+    // Fanned out rather than awaited one name at a time. Fourteen rows in
+    // sequence meant fourteen dependent round trips for data that has no
+    // ordering requirement at all.
+    const out = await Promise.all(
+      rows.map(async (row) => {
+        const { priceStats: p, metrics: m, bands: b, score: sc } = await latestFor(ctx, row.ticker);
+        return {
+        _id: row._id,
+        ticker: row.ticker,
+        name: row.name,
+        assetType: row.assetType ?? "equity",
+        priceStats: p
+          ? {
+              last: p.last,
+              prevClose: p.prevClose,
+              spark30: p.spark30,
+              dipState: p.dipState,
+              dipScore: p.dipScore,
+              ret3m: p.ret3m,
+              wk52High: p.wk52High,
+            }
+          : null,
+        metrics: m
+          ? {
+              assetType: m.assetType,
+              moatScore: m.moatScore,
+              moatTrend: m.moatTrend,
+              latestPeriodEnd: m.latestPeriodEnd,
+              revYoY: m.revYoY,
+              revAccel: m.revAccel,
+              sharesYoY: m.sharesYoY,
+              grossMarginPct: m.grossMarginPct,
+              grossMarginDeltaYoY: m.grossMarginDeltaYoY,
+              netDebtToEbitda: m.netDebtToEbitda,
+              // Only the three fields keyFacts reads, not the whole object.
+              expectations: m.expectations
+                ? {
+                    impliedGrowth: m.expectations.impliedGrowth,
+                    referenceGrowth: m.expectations.referenceGrowth,
+                    verdict: m.expectations.verdict,
+                  }
+                : undefined,
+              quality: m.quality
+                ? {
+                    grossProfitability: m.quality.grossProfitability,
+                    accruals: m.quality.accruals,
+                    fScore: m.quality.fScore,
+                    fScoreMax: m.quality.fScoreMax,
+                  }
+                : undefined,
+              cycle: m.cycle
+                ? { zone: m.cycle.zone, tsmsv: m.cycle.tsmsv, hasOnChain: m.cycle.hasOnChain }
+                : undefined,
+            }
+          : null,
+        bands: b
+          ? {
+              currentBand: b.currentBand,
+              upside: b.upside,
+              fairValue: b.fairValue,
+              confidence: b.confidence,
+              marginOfSafety: b.marginOfSafety,
+              // Label and action only; the tile colours a chip from these.
+              bands: (b.bands ?? []).map((x: { label: string; action: string }) => ({
+                label: x.label,
+                action: x.action,
+              })),
+            }
+          : null,
+          score: sc ? { asymmetry: sc.asymmetry, verdict: sc.verdict } : null,
+        };
+      })
+    );
+
+    out.sort((a, b2) => (b2.score?.asymmetry ?? -1) - (a.score?.asymmetry ?? -1));
+    return out;
+  },
+});
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
@@ -131,10 +233,36 @@ export const costBasisSeries = query({
       .withIndex("by_key", (i) => i.eq("key", `onchain:${asset.toLowerCase()}`))
       .unique();
     const rp = (row?.result?.realizedPrice ?? []) as { date: string; value: number }[];
-    return rp.filter((p) => p?.date && Number.isFinite(p.value));
+    // Rounded for the same reason as the bars, and thinned to weekly: the cost
+    // basis is a slow-moving aggregate that no chart resolves daily, and daily
+    // points cost 82KB to draw a line that changes by tenths of a percent.
+    const clean = rp.filter((p) => p?.date && Number.isFinite(p.value));
+    return clean
+      .filter((_, i) => i % 7 === 0 || i === clean.length - 1)
+      .map((p) => ({ date: p.date, value: Math.round(p.value * 100) / 100 }));
   },
 });
 
+/**
+ * Daily bars, rounded and de-duplicated on the way out.
+ *
+ * Prices are stored as 32-bit floats, so they serialise as things like
+ * 225.32000732421875 — eighteen characters to express two decimal places of a
+ * number that is drawn on a chart 400 pixels tall. At 1,300 bars with five
+ * numeric fields that was 209KB per company page, most of it digits nobody can
+ * see. Rounding to the cent, and to four significant figures below a dollar so
+ * sub-penny assets keep their resolution, does not change a single pixel.
+ *
+ * Open, high and low are omitted where they equal the close, which is the case
+ * for every crypto asset because the free feed publishes closes only. The client
+ * fills them back from the close, so nothing downstream has to know.
+ *
+ * The result is columnar rather than a list of objects. Repeating the keys
+ * "date", "o", "h", "l", "c" on every one of 1,300 bars costs about forty
+ * characters a row — roughly a third of the payload spent restating the schema.
+ * Volume is dropped outright: it is used server-side to build the volume
+ * profile and read nowhere on the client.
+ */
 export const priceSeries = query({
   args: { ticker: v.string(), days: v.optional(v.number()) },
   handler: async (ctx, { ticker, days = 1260 }) => {
@@ -143,14 +271,36 @@ export const priceSeries = query({
       .withIndex("by_ticker", (i) => i.eq("ticker", ticker.toUpperCase()))
       .collect();
     rows.sort((a, b) => a.date.localeCompare(b.date));
-    return rows.slice(-days).map((r: Doc<"prices_daily">) => ({
-      date: r.date,
-      o: r.o,
-      h: r.h,
-      l: r.l,
-      c: r.c,
-      v: r.v,
-    }));
+
+    const round = (n: number) => {
+      if (!Number.isFinite(n)) return 0;
+      if (Math.abs(n) >= 1) return Math.round(n * 100) / 100;
+      return Number(n.toPrecision(4));
+    };
+
+    const slice = rows.slice(-days);
+    const d: string[] = [];
+    const c: number[] = [];
+    const o: number[] = [];
+    const h: number[] = [];
+    const l: number[] = [];
+    let anyRange = false;
+
+    for (const r of slice) {
+      const cc = round(r.c);
+      const oo = round(r.o);
+      const hh = round(r.h);
+      const ll = round(r.l);
+      d.push(r.date);
+      c.push(cc);
+      o.push(oo);
+      h.push(hh);
+      l.push(ll);
+      if (oo !== cc || hh !== cc || ll !== cc) anyRange = true;
+    }
+
+    // A feed with no intraday range ships one column instead of four.
+    return anyRange ? { d, o, h, l, c } : { d, c };
   },
 });
 
