@@ -90,6 +90,8 @@ export default defineSchema({
     /** Causal signal buckets at the latest bar — see lib/signals.ts. The
      *  allocator looks these up against measured multipliers. */
     signalBuckets: v.optional(v.record(v.string(), v.string())),
+    /** Volume (or time) profile over the trailing year. See lib/profile.ts. */
+    profile: v.optional(v.any()),
     updatedAt: v.number(),
   }).index("by_ticker", ["ticker"]),
 

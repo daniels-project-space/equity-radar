@@ -177,6 +177,7 @@ export const storePriceStats = internalMutation({
       upDownVolume: v.optional(v.number()),
       sellingPressure: v.optional(v.number()),
       signalBuckets: v.optional(v.record(v.string(), v.string())),
+      profile: v.optional(v.any()),
     }),
   },
   handler: async (ctx, { ticker, stats }) => {
@@ -718,5 +719,43 @@ export const dedupeBars = internalMutation({
     // next page because duplicates sort adjacently, so no run is split.
     const last = page[page.length - 1].date;
     return { done: page.length < batch, removed, next: last, scanned: page.length };
+  },
+});
+
+
+/** Stored valuations, shaped for the sensitivity audit. */
+export const valuationSamples = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const watch = (await ctx.db.query("watchlist").collect()).filter(
+      (w) => w.assetType !== "crypto"
+    );
+    const out = [];
+    for (const w of watch) {
+      const [bands, stats, metrics] = await Promise.all([
+        ctx.db.query("buy_bands").withIndex("by_ticker", (i) => i.eq("ticker", w.ticker)).unique(),
+        ctx.db.query("price_stats").withIndex("by_ticker", (i) => i.eq("ticker", w.ticker)).unique(),
+        ctx.db.query("metrics").withIndex("by_ticker", (i) => i.eq("ticker", w.ticker)).unique(),
+      ]);
+      if (!bands?.fairValue || !bands.methods) continue;
+      out.push({
+        ticker: w.ticker,
+        fairValue: bands.fairValue,
+        price: stats?.last,
+        marginOfSafety: bands.marginOfSafety ?? 0.2,
+        dispersion: bands.dispersion ?? 0,
+        methods: (bands.methods as { key: string; perShare: number; weight: number }[]).map((m) => ({
+          key: m.key,
+          perShare: m.perShare,
+          weight: m.weight,
+        })),
+        revGrowth: metrics?.revYoY,
+        grossMargin: metrics?.grossMarginPct,
+        justifiedGrowth: metrics?.expectations?.justifiedGrowth,
+        horizonYears: metrics?.expectations?.horizonYears,
+        discountRate: metrics?.expectations?.discountRate,
+      });
+    }
+    return out;
   },
 });

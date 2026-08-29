@@ -292,6 +292,32 @@ export const cryptoCalibration = query({
   },
 });
 
+export const storeSensitivity = internalMutation({
+  args: { result: v.any() },
+  handler: async (ctx, { result }) => {
+    const existing = await ctx.db
+      .query("simulations")
+      .withIndex("by_key", (i) => i.eq("key", "sensitivity"))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, { result, computedAt: Date.now() });
+      return;
+    }
+    await ctx.db.insert("simulations", { key: "sensitivity", result, computedAt: Date.now() });
+  },
+});
+
+export const sensitivity = query({
+  args: {},
+  handler: async (ctx) => {
+    const row = await ctx.db
+      .query("simulations")
+      .withIndex("by_key", (i) => i.eq("key", "sensitivity"))
+      .unique();
+    return row ? { result: row.result, computedAt: row.computedAt } : null;
+  },
+});
+
 export const tournament = query({
   args: {},
   handler: async (ctx) => {

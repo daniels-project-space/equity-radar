@@ -19,6 +19,8 @@
  * may look forward.
  */
 
+import { priceProfile } from "./profile";
+
 export type Bar = { date: string; o: number; h: number; l: number; c: number; v: number };
 
 /* ------------------------------------------------------------------ */
@@ -227,7 +229,58 @@ export const CONDITIONS: Condition[] = [
       return Number.isFinite(hi) && bars[i].c > hi;
     },
   },
+  {
+    key: "belowValueArea",
+    label: "price below the value area low",
+    test: ({ bars, i }) => {
+      const pr = profileAt(bars, i);
+      return pr !== null && bars[i].c < pr.val;
+    },
+  },
+  {
+    key: "atPoc",
+    label: "price within 2% of the point of control",
+    test: ({ bars, i }) => {
+      const pr = profileAt(bars, i);
+      return pr !== null && Math.abs(bars[i].c / pr.poc - 1) < 0.02;
+    },
+  },
+  {
+    key: "reenterValue",
+    label: "back inside the value area from below",
+    test: ({ bars, i }) => {
+      const pr = profileAt(bars, i);
+      if (pr === null || i < 1) return false;
+      return bars[i - 1].c < pr.val && bars[i].c >= pr.val && bars[i].c <= pr.vah;
+    },
+  },
 ];
+
+/**
+ * Rolling profile over the trailing year, recomputed every 21 bars and cached.
+ *
+ * Recomputing a 48-row profile on every bar of every rule of every fold is the
+ * difference between a tournament that finishes and one that does not. The
+ * profile is a slow-moving object, so a monthly refresh loses nothing that
+ * matters and keeps the whole thing causal — the window only ever looks back.
+ */
+const profileCache = new WeakMap<Bar[], Map<number, ReturnType<typeof priceProfile>>>();
+
+function profileAt(bars: Bar[], i: number) {
+  if (i < 120) return null;
+  const key = Math.floor(i / 21);
+  let perSeries = profileCache.get(bars);
+  if (!perSeries) {
+    perSeries = new Map();
+    profileCache.set(bars, perSeries);
+  }
+  if (perSeries.has(key)) return perSeries.get(key)!;
+  const window = bars.slice(Math.max(0, i - 252), i + 1);
+  const pr = priceProfile(window, 36);
+  perSeries.set(key, pr);
+  return pr;
+}
+
 
 /** Simple moving average at index `i`. */
 function smaAt(bars: Bar[], i: number, n: number): number | null {

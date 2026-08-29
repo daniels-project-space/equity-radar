@@ -17,6 +17,7 @@ import { featuresAt } from "./lib/signals";
 import { readExpectations } from "./lib/expectations";
 import { readTrajectory } from "./lib/trajectory";
 import { readQuality } from "./lib/quality";
+import { priceProfile } from "./lib/profile";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fmt = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "n/a");
@@ -124,6 +125,10 @@ async function doRefreshTicker(
         upDownVolume: dip.upDownVolume,
         sellingPressure: dip.sellingPressure,
         signalBuckets: buckets,
+        // Where business actually concentrated, over the trailing year. Unlike
+        // most levels this app draws, the point of control and value area are
+        // measured rather than chosen.
+        profile: priceProfile(ohlcv.slice(-252)) ?? undefined,
       },
     });
   }

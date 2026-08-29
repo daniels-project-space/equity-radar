@@ -9,6 +9,7 @@ import { fetchCiksBySic } from "./lib/sec";
 import { calibrate } from "./lib/calibrate";
 import { backtest, buildCtx, combinations, type RuleResult } from "./lib/rules";
 import { runTournament } from "./lib/tournament";
+import { analyseSensitivity } from "./lib/sensitivity";
 
 /* ------------------------------------------------------------------ */
 /* Rule simulation                                                     */
@@ -358,4 +359,21 @@ export const runSignalTournament = action({
 export const tournamentCron = internalAction({
   args: {},
   handler: async (ctx) => tournament(ctx, 4),
+});
+
+/**
+ * Ranks the hand-chosen constants by how much they actually move the answer.
+ *
+ * Runs on stored valuations rather than re-deriving them, so it measures the
+ * model as it currently stands rather than a re-implementation of it.
+ */
+export const auditSensitivity = action({
+  args: {},
+  handler: async (ctx): Promise<any> => {
+    const rows = await ctx.runQuery(internal.data.valuationSamples, {});
+    const result = analyseSensitivity(rows);
+    if (!result) return { ok: false, reason: "not enough scored names" };
+    await ctx.runMutation(internal.allocation.storeSensitivity, { result });
+    return { ok: true, names: result.names, summary: result.summary };
+  },
 });

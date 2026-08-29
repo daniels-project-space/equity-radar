@@ -8,6 +8,7 @@ import { calibrateCrypto } from "./lib/cryptoCalibrate";
 import { derivePriceStats } from "./lib/metrics";
 import { detectDip } from "./lib/dip";
 import { featuresAt } from "./lib/signals";
+import { priceProfile } from "./lib/profile";
 
 /**
  * Ingest for a crypto asset.
@@ -71,6 +72,7 @@ async function refresh(ctx: any, ticker: string, asset: string) {
         upDownVolume: dip.upDownVolume,
         sellingPressure: dip.sellingPressure,
         signalBuckets: buckets,
+        profile: priceProfile(bars.slice(-252)) ?? undefined,
       },
     });
   }

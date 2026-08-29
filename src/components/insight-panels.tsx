@@ -730,3 +730,88 @@ export function RangePanel({ data, price }: { data: RangeData; price?: number })
     </section>
   );
 }
+
+export type ProfileData = {
+  poc: number;
+  vah: number;
+  val: number;
+  rows: { price: number; weight: number }[];
+  highVolumeNodes: number[];
+  lowVolumeNodes: number[];
+  basis: "volume" | "time";
+  location: string;
+  summary: string;
+};
+
+/**
+ * Where trade actually concentrated, as a sideways histogram.
+ *
+ * Included because it is measured rather than chosen — the point of control is
+ * the mode of the distribution, not a level anyone drew. Whether that makes it
+ * useful for timing is a separate question, and the answer below is no.
+ */
+export function ProfilePanel({ data, price }: { data: ProfileData; price?: number }) {
+  const max = Math.max(...data.rows.map((r) => r.weight), 0.0001);
+  const lo = data.rows[0]?.price ?? 0;
+  const hi = data.rows[data.rows.length - 1]?.price ?? 1;
+  const at = (p: number) => ((p - lo) / (hi - lo)) * 100;
+
+  return (
+    <section className="panel p-4">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          {data.basis === "volume" ? "Volume profile" : "Time profile"}
+        </h2>
+        <span className="text-[10px] text-[var(--muted)]">{data.location}</span>
+      </div>
+
+      {/* Rows run bottom-up so price increases upward, matching the chart. */}
+      <div className="relative mb-2 flex h-[150px] flex-col-reverse gap-px">
+        {data.rows.map((r, i) => {
+          const inValue = r.price >= data.val && r.price <= data.vah;
+          const isPoc = Math.abs(r.price - data.poc) < (hi - lo) / data.rows.length;
+          return (
+            <div key={i} className="flex flex-1 items-center gap-1">
+              <div
+                className="h-full rounded-r-[1px]"
+                style={{
+                  width: `${(r.weight / max) * 100}%`,
+                  background: isPoc ? "var(--accent)" : inValue ? "var(--good)" : "var(--line)",
+                  opacity: isPoc ? 0.9 : inValue ? 0.45 : 0.5,
+                }}
+              />
+            </div>
+          );
+        })}
+        {price !== undefined && at(price) >= 0 && at(price) <= 100 && (
+          <div
+            className="pointer-events-none absolute inset-x-0 h-px bg-[var(--text)]"
+            style={{ bottom: `${at(price)}%` }}
+            title={`Price ${usd(price)}`}
+          />
+        )}
+      </div>
+
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+        <dt className="text-[var(--muted)]">Value area high</dt>
+        <dd className="tabular text-right">{usd(data.vah)}</dd>
+        <dt style={{ color: "var(--accent)" }}>Point of control</dt>
+        <dd className="tabular text-right" style={{ color: "var(--accent)" }}>
+          {usd(data.poc)}
+        </dd>
+        <dt className="text-[var(--muted)]">Value area low</dt>
+        <dd className="tabular text-right">{usd(data.val)}</dd>
+      </dl>
+
+      <p className="mt-2.5 text-[11px] leading-relaxed text-[var(--muted)]">{data.summary}</p>
+
+      <p className="mt-2 border-t border-[var(--line)] pt-2 text-[10px] leading-relaxed text-[var(--muted)]">
+        These levels are computed from where trade concentrated, not drawn by hand — which makes
+        them a better class of reference than most lines on a chart. It does not make them a signal.
+        Tested as entry rules against buy-and-hold across thirteen names and four periods, buying
+        below the value area scored &minus;23pp and buying back inside it &minus;28pp, both among
+        the worst of the eighteen rules tried. Read this as a map of where business happened.
+      </p>
+    </section>
+  );
+}

@@ -39,6 +39,7 @@ import {
   ExpectationsPanel,
   ReturnOutlook,
   RangePanel,
+  ProfilePanel,
   CyclePanel,
   type Method,
   type Pillar,
@@ -276,6 +277,7 @@ export default function CompanyPage() {
 
         <Column title="How good it is">
           {range && <RangePanel data={range} price={p?.last} />}
+          {p?.profile && <ProfilePanel data={p.profile} price={p?.last} />}
           <PillarBars pillars={pillars} />
         </Column>
 

@@ -242,7 +242,9 @@ export function runTournament(
       round,
       tested: pool.length,
       survived: surviving.length,
-      entrants: entrants.slice(0, 10),
+      // Every entrant is kept. Truncating the list hid whether a rule scored
+      // badly or was never evaluated at all, which are very different findings.
+      entrants,
     });
 
     survivorKeys = surviving.map((e) => e.keys);
