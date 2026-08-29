@@ -9,6 +9,8 @@ import { derivePriceStats } from "./lib/metrics";
 import { detectDip } from "./lib/dip";
 import { featuresAt } from "./lib/signals";
 import { priceProfile } from "./lib/profile";
+import { measureLinkage } from "./lib/linkage";
+import { buildScenarios } from "./lib/scenarios";
 
 /**
  * Ingest for a crypto asset.
@@ -118,11 +120,74 @@ async function refresh(ctx: any, ticker: string, asset: string) {
     }
   }
 
+  // What this tracks. Bitcoin is the obvious driver for every other coin, and
+  // measuring it is the difference between "alt coins follow bitcoin" as a
+  // saying and as a number for this asset.
+  const drivers: { name: string; bars: { date: string; c: number }[] }[] = [];
+  for (const [name, sym] of [["Bitcoin", "BTC"], ["Nvidia", "NVDA"], ["the S&P 500", "SPY"]]) {
+    if (sym === ticker) continue;
+    const b = await ctx.runQuery(internal.data.barsFor, { ticker: sym });
+    if (b.length > 200) {
+      drivers.push({ name, bars: b.map((x: { date: string; c: number }) => ({ date: x.date, c: x.c })) });
+    }
+  }
+  const linkage = drivers.length
+    ? measureLinkage(bars.map((b) => ({ date: b.date, c: b.c })), drivers)
+    : null;
+
+  // With no earnings to discount, the cases belong to the cost basis: what this
+  // is worth if it returns to what the network paid, and if it stretches as far
+  // above that as it has before.
+  const price = closes[closes.length - 1];
+  const scenarios = cycle.realizedPrice
+    ? {
+        price,
+        convex: true,
+        payoffRatio: undefined,
+        scenarios: [
+          {
+            key: "bear",
+            label: "Bear",
+            fairValue: Math.round(cycle.realizedPrice * 100) / 100,
+            upside: Math.round((cycle.realizedPrice / price - 1) * 1000) / 10 + 0,
+            growth: 0,
+            condition: "Price falls back to the average the network actually paid.",
+          },
+          {
+            key: "base",
+            label: "Base",
+            fairValue: Math.round(cycle.realizedPrice * 1.5 * 100) / 100,
+            upside: Math.round((cycle.realizedPrice * 1.5 / price - 1) * 1000) / 10 + 0,
+            growth: 0,
+            condition: "It holds a normal premium of about 1.5x cost basis.",
+          },
+          {
+            key: "bull",
+            label: "Bull",
+            fairValue: Math.round(cycle.realizedPrice * 3 * 100) / 100,
+            upside: Math.round((cycle.realizedPrice * 3 / price - 1) * 1000) / 10 + 0,
+            growth: 0,
+            condition:
+              "It stretches to roughly 3x cost basis, around where past cycles have topped.",
+          },
+        ],
+        summary:
+          "Priced against what the network paid rather than against earnings, because there are none. " +
+          "The multiples are where past cycles have traded, not levels anything is obliged to reach.",
+      }
+    : null;
+
   // Stored unconditionally, so an asset without on-chain data still renders as
   // a crypto asset with the fields it does have rather than as a blank equity.
   await ctx.runMutation(internal.data.storeMetrics, {
     ticker,
-    metrics: { assetType: "crypto", cycle, quartersAvailable: 0 },
+    metrics: {
+      assetType: "crypto",
+      cycle,
+      linkage,
+      scenarios,
+      quartersAvailable: 0,
+    },
   });
 
   return {

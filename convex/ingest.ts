@@ -19,6 +19,7 @@ import { readTrajectory } from "./lib/trajectory";
 import { readQuality } from "./lib/quality";
 import { priceProfile } from "./lib/profile";
 import { measureLinkage } from "./lib/linkage";
+import { buildAnchorHistory } from "./lib/anchorHistory";
 import { buildScenarios } from "./lib/scenarios";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -468,6 +469,9 @@ async function doRefreshTicker(
       trajectory: trajectory ?? undefined,
       linkage,
       scenarios,
+      // The valuation as it stood at each past filing, so the chart can mark
+      // zones against what was known then rather than against today's estimate.
+      anchorHistory: buildAnchorHistory(quarters, latestQ?.sharesDiluted),
       quality: quality ?? undefined,
       realisedVol,
       guidedGrowth,

@@ -226,7 +226,11 @@ export default function CompanyPage() {
             bands={bandList}
             fairValue={b?.fairValue}
             earningsDates={data.earningsDates}
-            costBasis={costBasis ?? undefined}
+            costBasis={
+              isCrypto
+                ? (costBasis ?? undefined)
+                : (m?.anchorHistory as { date: string; value: number }[] | undefined)
+            }
             closesOnly={isCrypto}
           />
         ) : (

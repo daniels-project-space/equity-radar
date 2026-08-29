@@ -87,17 +87,35 @@ function crossings(
   // version compared every past price against today's levels, which for Bitcoin
   // meant a "buy zone" ceiling built from a 2026 cost basis applied to 2023
   // prices — so the only crossings it could find were falls from local highs.
-  // Crypto supplies a genuine anchor history. Equities have no stored fair-value
-  // series, so their anchor is today's estimate held flat — which is honest
-  // about being an approximation, and far better than drawing nothing.
-  const flatAnchor = !costBasis || costBasis.length < 30 ? fairValue : undefined;
-  if (!costBasis?.length && !flatAnchor) return [];
+  // An anchor history is required. Holding today's estimate flat across ten
+  // years was the previous fallback, and it is the same look-ahead that made
+  // the crypto markers point at tops: a company earning a fraction of today's
+  // profit was not worth today's valuation then. Both asset types now supply a
+  // real series, and where one is missing nothing is drawn.
+  if (!costBasis || costBasis.length < 4) return [];
 
-  const basisByDate = new Map((costBasis ?? []).map((p) => [p.date, p.value]));
-  let carried: number | undefined = flatAnchor;
+  // Anchors arrive at filing dates, not every session, so each is carried
+  // forward until the next one lands — which is how a valuation actually
+  // behaves between results.
+  const basisByDate = new Map(costBasis.map((p) => [p.date, p.value]));
+  const anchorDates = costBasis.map((p) => p.date).sort();
+  let carried: number | undefined = undefined;
   const anchorAt = (date: string): number | undefined => {
-    const v = basisByDate.get(date);
-    if (v !== undefined && v > 0) carried = v;
+    const exact = basisByDate.get(date);
+    if (exact !== undefined && exact > 0) {
+      carried = exact;
+      return carried;
+    }
+    // Filing dates rarely coincide with a session, so take the most recent
+    // anchor at or before this bar.
+    if (carried === undefined) {
+      let latest: string | undefined;
+      for (const d of anchorDates) {
+        if (d <= date) latest = d;
+        else break;
+      }
+      if (latest) carried = basisByDate.get(latest);
+    }
     return carried;
   };
 

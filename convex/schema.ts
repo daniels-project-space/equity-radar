@@ -253,6 +253,8 @@ export default defineSchema({
     linkage: v.optional(v.any()),
     /** Bear/base/bull with the conditions each requires. See lib/scenarios.ts. */
     scenarios: v.optional(v.any()),
+    /** Causal fair-value series. See lib/anchorHistory.ts. */
+    anchorHistory: v.optional(v.any()),
     /** "equity" (default) or "crypto" — decides which model applies at all. */
     assetType: v.optional(v.string()),
     /** On-chain cycle position for crypto. See lib/crypto.ts. */
