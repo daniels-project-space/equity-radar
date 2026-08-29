@@ -18,6 +18,8 @@ import { readExpectations } from "./lib/expectations";
 import { readTrajectory } from "./lib/trajectory";
 import { readQuality } from "./lib/quality";
 import { priceProfile } from "./lib/profile";
+import { measureLinkage } from "./lib/linkage";
+import { buildScenarios } from "./lib/scenarios";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fmt = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "n/a");
@@ -361,6 +363,20 @@ async function doRefreshTicker(
     }
   }
 
+  // ---- what this is actually a bet on --------------------------------
+  // Measured rather than asserted: a supplier inside someone else's demand
+  // curve, or a balance sheet holding an asset, shows up as explained variance
+  // against that driver. Nothing in the filings reports it.
+  const drivers: { name: string; bars: { date: string; c: number }[] }[] = [];
+  for (const [name, sym] of [["Bitcoin", "BTC"], ["Nvidia", "NVDA"], ["the S&P 500", "SPY"]]) {
+    if (sym === t) continue;
+    const b = await ctx.runQuery(internal.data.barsFor, { ticker: sym });
+    if (b.length > 200) drivers.push({ name, bars: b.map((x) => ({ date: x.date, c: x.c })) });
+  }
+  const linkage = drivers.length
+    ? measureLinkage(storedBars.map((b) => ({ date: b.date, c: b.c })), drivers)
+    : null;
+
   // ---- what the price already assumes --------------------------------
   const expectations = readExpectations({
     marketCap: metrics.marketCap,
@@ -410,6 +426,28 @@ async function doRefreshTicker(
     ownPeSamples: ownPes.length,
     anchorOverride: bandSettings.mode === "fixed" ? bandSettings.fixedMultiple : undefined,
   });
+  const scenarios = buildScenarios({
+    price: stats?.last,
+    fairValue: valuation?.fairValue,
+    fcfTtm: metrics.fcfTtm,
+    revenueTtm: metrics.revenueTtm,
+    netCash: metrics.netCash,
+    shares: latestQ?.sharesDiluted,
+    justifiedGrowth:
+      expectations?.justifiedGrowth === undefined ? undefined : expectations.justifiedGrowth / 100,
+    deliveredGrowth: trajectory?.perShareGrowth,
+    horizonYears: expectations?.horizonYears,
+    discountRate: expectations?.discountRate,
+    moatScore: moat.score,
+    link: linkage?.primary
+      ? {
+          driver: linkage.primary.driver,
+          beta: linkage.primary.beta,
+          rSquared: linkage.primary.rSquared,
+        }
+      : undefined,
+  });
+
   if (valuation) await ctx.runMutation(internal.data.storeBands, { ticker: t, bands: valuation });
   else notes.push("valuation not computable — no share count");
 
@@ -428,6 +466,8 @@ async function doRefreshTicker(
       moatPillars: moat.pillars,
       expectations: expectations ?? undefined,
       trajectory: trajectory ?? undefined,
+      linkage,
+      scenarios,
       quality: quality ?? undefined,
       realisedVol,
       guidedGrowth,

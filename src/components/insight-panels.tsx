@@ -815,3 +815,140 @@ export function ProfilePanel({ data, price }: { data: ProfileData; price?: numbe
     </section>
   );
 }
+
+export type ScenarioData = {
+  scenarios: { key: string; label: string; fairValue: number; upside: number; condition: string }[];
+  price: number;
+  payoffRatio?: number;
+  convex: boolean;
+  summary: string;
+};
+
+export type LinkageData = {
+  primary?: { driver: string; beta: number; rSquared: number; assetVol: number; driverVol: number };
+  all: { driver: string; beta: number; rSquared: number }[];
+  summary: string;
+};
+
+const SCEN_COLOR: Record<string, string> = {
+  bear: "var(--bad)",
+  base: "var(--muted)",
+  bull: "var(--good)",
+};
+
+/**
+ * The three cases and what each requires.
+ *
+ * Replaces a single number where a single number misleads. Conditions are
+ * stated instead of probabilities because "28% growth held for nine years" can
+ * be checked against the world and "a 20% chance" cannot.
+ */
+export function ScenarioPanel({ data }: { data: ScenarioData }) {
+  const span = Math.max(...data.scenarios.map((s) => Math.abs(s.upside)), 20);
+
+  return (
+    <section className="panel p-4">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          What it is worth if
+        </h2>
+        {data.payoffRatio !== undefined && (
+          <span className="text-[10px] text-[var(--muted)]">
+            {data.payoffRatio}:1 upside against downside
+          </span>
+        )}
+      </div>
+
+      <div className="mb-3 space-y-2.5">
+        {data.scenarios.map((s) => (
+          <div key={s.key}>
+            <div className="mb-0.5 flex items-baseline justify-between gap-2 text-[11px]">
+              <span style={{ color: SCEN_COLOR[s.key] }}>{s.label}</span>
+              <span className="tabular">
+                {usd(s.fairValue)}
+                <span
+                  className="ml-2 font-semibold"
+                  style={{ color: s.upside >= 0 ? "var(--good)" : "var(--bad)" }}
+                >
+                  {s.upside >= 0 ? "+" : ""}
+                  {s.upside}%
+                </span>
+              </span>
+            </div>
+            <div className="relative h-1.5 rounded-sm bg-[var(--line)]">
+              <div
+                className="absolute inset-y-0 w-px bg-[var(--muted)] opacity-60"
+                style={{ left: "50%" }}
+              />
+              <div
+                className="absolute inset-y-0 rounded-sm"
+                style={{
+                  left: s.upside >= 0 ? "50%" : `${50 + (s.upside / span) * 50}%`,
+                  width: `${(Math.abs(s.upside) / span) * 50}%`,
+                  background: SCEN_COLOR[s.key],
+                  opacity: 0.7,
+                }}
+              />
+            </div>
+            <p className="mt-1 text-[10px] leading-snug text-[var(--muted)]">{s.condition}</p>
+          </div>
+        ))}
+      </div>
+
+      <p
+        className="border-t border-[var(--line)] pt-2 text-[10px] leading-relaxed"
+        style={{ color: data.convex ? "var(--warn)" : "var(--muted)" }}
+      >
+        {data.summary}
+      </p>
+    </section>
+  );
+}
+
+/**
+ * What the asset actually tracks.
+ *
+ * The valuation reads filings and therefore cannot see that a company is a
+ * levered claim on something else. This measures it instead of asserting it.
+ */
+export function LinkagePanel({ data }: { data: LinkageData }) {
+  const p = data.primary;
+  return (
+    <section className="panel p-4">
+      <h2 className="mb-2 text-[11px] uppercase tracking-wider text-[var(--muted)]">
+        What it trades on
+      </h2>
+
+      <div className="mb-2.5 space-y-1.5">
+        {data.all.slice(0, 3).map((l) => (
+          <div key={l.driver} className="flex items-center gap-2.5">
+            <span className="w-24 shrink-0 text-[11px]">{l.driver}</span>
+            <div className="relative h-2.5 flex-1 rounded-sm bg-[var(--line)]">
+              <div
+                className="absolute inset-y-0 left-0 rounded-sm"
+                style={{
+                  width: `${Math.min(100, l.rSquared * 100)}%`,
+                  background: l.rSquared >= 0.25 ? "var(--accent)" : "var(--muted)",
+                  opacity: l.rSquared >= 0.25 ? 0.8 : 0.4,
+                }}
+              />
+            </div>
+            <span className="tabular w-24 shrink-0 text-right text-[10px] text-[var(--muted)]">
+              {Math.round(l.rSquared * 100)}% · {l.beta.toFixed(2)}x
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[11px] leading-relaxed text-[var(--muted)]">{data.summary}</p>
+
+      {p && p.beta > 1.3 && (
+        <p className="mt-2 border-t border-[var(--line)] pt-2 text-[10px] leading-relaxed text-[var(--warn)]">
+          At {p.beta.toFixed(2)}x, a 30% fall in {p.driver} implies roughly{" "}
+          {Math.round(30 * p.beta)}% here. The leverage that explains the premium is the same
+          leverage that removes it.
+        </p>
+      )}
+    </section>
+  );
+}

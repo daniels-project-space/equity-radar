@@ -40,6 +40,8 @@ import {
   ReturnOutlook,
   RangePanel,
   ProfilePanel,
+  ScenarioPanel,
+  LinkagePanel,
   CyclePanel,
   type Method,
   type Pillar,
@@ -270,12 +272,14 @@ export default function CompanyPage() {
           {m?.assetType !== "crypto" && m?.expectations && (
             <ExpectationsPanel data={m.expectations} />
           )}
+          {m?.scenarios && <ScenarioPanel data={m.scenarios} />}
           {outlook && (
             <ReturnOutlook rows={outlook} price={p?.last} basis={m?.trajectory?.basis} />
           )}
         </Column>
 
         <Column title="How good it is">
+          {m?.linkage && <LinkagePanel data={m.linkage} />}
           {range && <RangePanel data={range} price={p?.last} />}
           {p?.profile && <ProfilePanel data={p.profile} price={p?.last} />}
           <PillarBars pillars={pillars} />

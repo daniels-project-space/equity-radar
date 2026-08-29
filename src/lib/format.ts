@@ -57,6 +57,8 @@ export const VERDICT_COLOR: Record<string, string> = {
 };
 
 export const ACTION_COLOR: Record<string, string> = {
+  // Above everything the valuation covers — not a zone, an absence of one.
+  ABOVE_RANGE: "#7c3aed",
   BUY_AGGRESSIVE: "#10b981",
   BUY: "#34d399",
   ACCUMULATE: "#a3e635",

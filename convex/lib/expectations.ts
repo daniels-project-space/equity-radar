@@ -326,4 +326,6 @@ export function readExpectations(input: {
   };
 }
 
-const r1 = (n: number) => Math.round(n * 10) / 10;
+// `+ 0` collapses negative zero, which Math.round produces from any tiny
+// negative and Convex then stores as a tagged float the UI cannot format.
+const r1 = (n: number) => Math.round(n * 10) / 10 + 0;

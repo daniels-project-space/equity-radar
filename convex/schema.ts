@@ -249,6 +249,10 @@ export default defineSchema({
     trajectory: v.optional(v.any()),
     /** Piotroski/Novy-Marx/Sloan quality measures. See lib/quality.ts. */
     quality: v.optional(v.any()),
+    /** What the asset's returns actually track. See lib/linkage.ts. */
+    linkage: v.optional(v.any()),
+    /** Bear/base/bull with the conditions each requires. See lib/scenarios.ts. */
+    scenarios: v.optional(v.any()),
     /** "equity" (default) or "crypto" — decides which model applies at all. */
     assetType: v.optional(v.string()),
     /** On-chain cycle position for crypto. See lib/crypto.ts. */

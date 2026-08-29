@@ -69,7 +69,8 @@ function sma(bars: Bar[], period: number): { time: string; value: number }[] {
 function crossings(
   bars: Bar[],
   bands: Band[],
-  costBasis?: { date: string; value: number }[]
+  costBasis?: { date: string; value: number }[],
+  fairValue?: number
 ): Marker[] {
   if (bands.length === 0 || bars.length < 2) return [];
 
@@ -86,10 +87,14 @@ function crossings(
   // version compared every past price against today's levels, which for Bitcoin
   // meant a "buy zone" ceiling built from a 2026 cost basis applied to 2023
   // prices — so the only crossings it could find were falls from local highs.
-  if (!costBasis || costBasis.length < 30) return [];
+  // Crypto supplies a genuine anchor history. Equities have no stored fair-value
+  // series, so their anchor is today's estimate held flat — which is honest
+  // about being an approximation, and far better than drawing nothing.
+  const flatAnchor = !costBasis || costBasis.length < 30 ? fairValue : undefined;
+  if (!costBasis?.length && !flatAnchor) return [];
 
-  const basisByDate = new Map(costBasis.map((p) => [p.date, p.value]));
-  let carried: number | undefined;
+  const basisByDate = new Map((costBasis ?? []).map((p) => [p.date, p.value]));
+  let carried: number | undefined = flatAnchor;
   const anchorAt = (date: string): number | undefined => {
     const v = basisByDate.get(date);
     if (v !== undefined && v > 0) carried = v;
@@ -112,9 +117,9 @@ function crossings(
       out.push({
         time: bars[i].date,
         position: "belowBar",
-        color: "#34d399",
+        color: "#22c55e",
         shape: "arrowUp",
-        text: "in zone",
+        text: "BUY ZONE",
       });
       lastIdx = i;
     } else if (trimMultiple !== undefined) {
@@ -124,9 +129,9 @@ function crossings(
         out.push({
           time: bars[i].date,
           position: "aboveBar",
-          color: "#f87171",
+          color: "#ef4444",
           shape: "arrowDown",
-          text: "stretched",
+          text: "SELL ZONE",
         });
         lastIdx = i;
       }
@@ -164,13 +169,11 @@ export function PriceChart({
   const [rects, setRects] = useState<{ band: Band; top: number; height: number }[]>([]);
   const [paneHeight, setPaneHeight] = useState(0);
   const [showBands, setShowBands] = useState(true);
-    // Off by default. These were measured on Bitcoin after the look-ahead was
-  // removed: seven crossings, median forward 90-day return -8.3% against a
-  // +4.2% baseline, one of six positive. Fixing the arithmetic did not make
-  // them a signal — it only stopped them being a fabricated one. They are kept
-  // as an inspectable overlay rather than shown by default, because an arrow
-  // labelled "entry" on a chart is read as advice however it is captioned.
-  const [showMarkers, setShowMarkers] = useState(false);
+    // On, by request. The measurement behind the caption still stands — after the
+  // look-ahead was removed these crossings returned a median -8.3% over the
+  // next 90 days against a +4.2% baseline — but which of two honest defaults to
+  // pick is the user's call, and they asked to see them.
+  const [showMarkers, setShowMarkers] = useState(true);
   const [showMa, setShowMa] = useState(true);
   const [showEarnings, setShowEarnings] = useState(true);
 
@@ -273,6 +276,29 @@ export function PriceChart({
     setPaneHeight(pane);
 
     const next: { band: Band; top: number; height: number }[] = [];
+
+    // Everything above the table gets its own region rather than being left
+    // blank. Strategy has traded to $474 against a table that stops at $180, so
+    // a quarter of its history sat over unshaded chart — which read as the
+    // model having nothing to say, when what it actually means is that the
+    // price spent that time beyond anything the fundamentals support.
+    const tableTop = Math.max(...bands.map((b) => b.priceHi));
+    const yTop = series.priceToCoordinate(tableTop);
+    if (yTop !== null && yTop > 1) {
+      next.push({
+        band: {
+          label: "Beyond the model",
+          action: "ABOVE_RANGE",
+          priceLo: tableTop,
+          priceHi: Number.POSITIVE_INFINITY,
+          multipleLo: 0,
+          multipleHi: 0,
+        },
+        top: 0,
+        height: yTop,
+      });
+    }
+
     for (const band of bands) {
       const yHi = series.priceToCoordinate(band.priceHi);
       const yLo = series.priceToCoordinate(band.priceLo);
@@ -311,7 +337,7 @@ export function PriceChart({
       costBasis?.length ? costBasis.filter((pt) => pt.date >= (slice[0]?.date ?? "")).map((pt) => ({ time: pt.date, value: pt.value })) : []
     );
 
-    const marks: Marker[] = showMarkers ? crossings(slice, bands, costBasis) : [];
+    const marks: Marker[] = showMarkers ? crossings(slice, bands, costBasis, fairValue) : [];
     if (showEarnings && earningsDates?.length) {
       const inRange = new Set(slice.map((b) => b.date));
       for (const d of earningsDates) {
