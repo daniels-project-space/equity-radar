@@ -66,7 +66,7 @@ function sma(bars: Bar[], period: number): { time: string; value: number }[] {
  * falls from local highs — it marked tops and called them entries. Zones are
  * kept as multiples of the anchor and re-priced against the contemporaneous
  * anchor instead, and nothing is drawn where no anchor history exists rather
- * than falling back to today's. Crossings within 10 sessions of the previous
+ * than falling back to today's. Crossings within 20 sessions of the previous
  * one are dropped so an asset oscillating on a boundary does not produce a wall
  * of arrows.
  */
@@ -130,7 +130,15 @@ function crossings(
     const anchorNow = anchorAt(bars[i].date);
     const anchorPrev = anchorAt(bars[i - 1].date);
     if (!anchorNow || !anchorPrev) continue;
-    if (i - lastIdx < 10) continue;
+    // Roughly a month between marks. Ten sessions was two weeks, which on a
+    // ten-year chart stacked six overlapping labels into one unreadable smear
+    // around a single episode. This is chosen for legibility, not fitted: the
+    // buy median wanders -6.8%, -0.6%, -0.6%, -9.5%, -0.6% across cooldowns of
+    // 10 to 63 with no trend, which is what no signal looks like, and the sell
+    // median stays between -17.8% and -23.9% throughout. Picking the spacing
+    // that flattered the returns would be the exact mistake this app exists to
+    // avoid, so it is picked on the chart and reported on the numbers.
+    if (i - lastIdx < 20) continue;
 
     const ceilNow = anchorNow * buyMultiple;
     const ceilPrev = anchorPrev * buyMultiple;
@@ -141,7 +149,7 @@ function crossings(
         position: "belowBar",
         color: "#22c55e",
         shape: "arrowUp",
-        text: "BUY ZONE",
+        text: "BUY",
       });
       lastIdx = i;
     } else if (trimMultiple !== undefined) {
@@ -153,7 +161,7 @@ function crossings(
           position: "aboveBar",
           color: "#ef4444",
           shape: "arrowDown",
-          text: "SELL ZONE",
+          text: "SELL",
         });
         lastIdx = i;
       }
@@ -472,7 +480,7 @@ export function PriceChart({
           "Zone crossings",
           showMarkers,
           setShowMarkers,
-          "Where price crossed the zone boundary, priced against the anchor as it stood at the time. Measured over ten years and thirteen names: the green marks did NOT work — median forward 90-day return -7.0%, only 11 of 27 positive. The red marks did — price fell a median 17.8% over the next 90 days, 13 of 19 correct. An earlier read on a quarter of this sample showed the green marks at +19.7% and it did not survive the larger one. Shown for inspection; the green arrows in particular are not entries."
+          "Where price crossed the zone boundary, priced against the anchor as it stood at the time. Measured over ten years and thirteen names: the green marks did NOT work — median forward 90-day return -0.6%, 8 of 17 positive, which is a coin flip. The red marks did — price fell a median 23.9% over the next 90 days, 11 of 15 correct. An earlier read on a quarter of this sample put the green marks at +19.7% and it did not survive the larger one. Shown for inspection; the green arrows in particular are not entries."
         )}
         </div>
       </div>
