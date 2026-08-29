@@ -17,7 +17,16 @@ export type Bar = { date: string; o: number; h: number; l: number; c: number; v:
  * whole app down. Alpaca is used only if keys happen to be configured; the
  * two fallbacks are keyless, which is the supported default.
  */
-export async function fetchDailyBars(ticker: string, lookbackDays = 1300): Promise<Bar[]> {
+/**
+ * Ten years rather than five. Every server-side measurement that needs a sample
+ * — the relative bands, the marker backtest, the linkage regression, the volume
+ * profile — was working off whatever history happened to be stored, and five
+ * years is thin for a claim about how a name has been priced "historically".
+ * The client is unaffected: watchlist.priceSeries slices to its own window, so
+ * this deepens the analysis without widening the payload, and it is still one
+ * request per name.
+ */
+export async function fetchDailyBars(ticker: string, lookbackDays = 2600): Promise<Bar[]> {
   const sources: { name: string; run: () => Promise<Bar[]> }[] = [];
   if (process.env.ALPACA_KEY_ID && process.env.ALPACA_SECRET) {
     sources.push({ name: "alpaca", run: () => fetchAlpaca(ticker, lookbackDays) });
@@ -52,7 +61,8 @@ type YahooChart = {
 };
 
 async function fetchYahoo(ticker: string, lookbackDays: number): Promise<Bar[]> {
-  const range = lookbackDays > 1000 ? "5y" : lookbackDays > 400 ? "2y" : "1y";
+  const range =
+    lookbackDays > 2000 ? "10y" : lookbackDays > 1000 ? "5y" : lookbackDays > 400 ? "2y" : "1y";
   const url =
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}` +
     `?range=${range}&interval=1d&events=div%2Csplit`;

@@ -148,6 +148,13 @@ export type RelativeBands = {
   percentile?: number;
   observations: number;
   median: number;
+  /** How far the anchor itself ranged over the sample, p90/p10. */
+  anchorSpread: number;
+  /** The same for price. */
+  priceSpread: number;
+  /** anchorSpread / priceSpread. Above 1 means the ratio's movement is more
+   *  about the denominator than about the stock. Reported, not thresholded. */
+  denominatorShare: number;
   summary: string;
 };
 
@@ -178,19 +185,72 @@ export function buildRelativeBands(
 ): RelativeBands | null {
   if (anchors.length < 3 || bars.length < 200) return null;
 
-  const sorted = [...anchors].sort((a, b) => a.date.localeCompare(b.date));
+  const all = [...anchors].sort((a, b) => a.date.localeCompare(b.date));
+
+  // A percentile is only meaningful if every observation measures the same
+  // thing. Strategy's anchor runs $1.51 in early 2023 to $161 by mid-2025 —
+  // fair-value crypto accounting redefining book equity, not a business
+  // growing a hundredfold. Pooling both sides put today's 1.27x against a
+  // decade of ratios computed on the old basis and called it the 8th
+  // percentile, which is an artifact of the redefinition rather than a
+  // statement about price. Deepening the history is what exposed this; the
+  // shallow sample sat entirely on one side of the break and was consistent
+  // by luck.
+  //
+  // Detecting the redefinition automatically does not work, and it is worth
+  // saying why rather than leaving a tuned threshold behind. A per-quarter step
+  // test flags AMD's earnings tripling off a cyclical trough and cuts eight
+  // years of good history to eighteen months. A sustained median-split test
+  // flags NVIDIA, whose earnings really did rise an order of magnitude — over a
+  // decade, smoothly. Growth is a ramp and a redefinition is a step, but by the
+  // time either is measured over quarters both look like a large level shift,
+  // and every threshold that caught Strategy also destroyed a real sample.
+  //
+  // So nothing is discarded. Instead the thing that makes the percentile
+  // untrustworthy is measured directly: whether the ratio moved because price
+  // moved or because the anchor did. If the anchor's own range over the sample
+  // is wider than the price's, the distribution is mostly a picture of the
+  // denominator, and the reader is told so instead of being handed a number
+  // that quietly means something else.
+  const sorted = all;
   let carried: number | undefined;
   let idx = 0;
   const ratios: number[] = [];
+
+  // Kept alongside the ratios so the two sources of movement can be compared.
+  const usedAnchors: number[] = [];
+  const usedPrices: number[] = [];
 
   for (const bar of bars) {
     while (idx < sorted.length && sorted[idx].date <= bar.date) {
       carried = sorted[idx].value;
       idx++;
     }
-    if (carried && carried > 0 && bar.c > 0) ratios.push(bar.c / carried);
+    if (carried && carried > 0 && bar.c > 0) {
+      ratios.push(bar.c / carried);
+      usedAnchors.push(carried);
+      usedPrices.push(bar.c);
+    }
   }
   if (ratios.length < 150) return null;
+
+  const spread = (xs: number[]) => {
+    const a = [...xs].sort((p, q) => p - q);
+    const lo = a[Math.floor(a.length * 0.1)];
+    const hi = a[Math.floor(a.length * 0.9)];
+    return lo > 0 ? hi / lo : 1;
+  };
+  const anchorSpread = spread(usedAnchors);
+  const priceSpread = spread(usedPrices);
+  // Reported as a number rather than a warning. A threshold was tried and
+  // abandoned: an earnings anchor is more volatile than price for almost every
+  // name, because price smooths expectations while trailing earnings do not, so
+  // any "the anchor moved more" flag fires on nearly the whole watchlist and
+  // warns about nothing. Worse, it does not even rank the way the concern does
+  // — AMD scores 5.7 on this and Strategy 3.7, and it is Strategy whose
+  // denominator was redefined by accounting rather than by trading. The ratio
+  // is informative; the verdict drawn from it was not, so only the ratio ships.
+  const denominatorShare = priceSpread > 0 ? anchorSpread / priceSpread : 1;
 
   const asc = [...ratios].sort((a, b) => a - b);
   const q = (p: number) => asc[Math.min(asc.length - 1, Math.floor(asc.length * p))];
@@ -207,6 +267,7 @@ export function buildRelativeBands(
   const now = ratios[ratios.length - 1];
   const percentile = Math.round((asc.filter((x) => x < now).length / asc.length) * 100);
   const median = r2(q(0.5));
+  const years = Math.max(1, Math.round(ratios.length / 252));
 
   return {
     bands: edges,
@@ -214,10 +275,18 @@ export function buildRelativeBands(
     percentile,
     observations: ratios.length,
     median,
+    anchorSpread: r2(anchorSpread),
+    priceSpread: r2(priceSpread),
+    denominatorShare: r2(denominatorShare),
     summary:
-      `Over ${Math.round(ratios.length / 252)} years this has traded between ${r2(q(0.1))}x and ` +
-      `${r2(q(0.9))}x its own anchor, and sits at ${r2(now)}x today — cheaper than ` +
+      `Over ${years} ${years === 1 ? "year" : "years"} this has traded between ${r2(q(0.1))}x and ` +
+      `${r2(q(0.9))}x its own anchor, and sits at ${r2(now)}x today - cheaper than ` +
       `${100 - percentile}% of its own history. That is where it is cheap for this name, which is ` +
-      `a different question from whether it is cheap.`,
+      `a different question from whether it is cheap.` +
+      ` The anchor itself ranged ${r2(anchorSpread)}x over this window against ${r2(priceSpread)}x ` +
+      `for the price, so roughly ${r2(denominatorShare)}x more of the ratio's movement comes from ` +
+      `the denominator than from what the stock did. Where a filing changed how the anchor is ` +
+      `computed - Strategy's book equity was redefined by fair-value crypto accounting in 2024 - ` +
+      `ratios either side of that are not the same measurement at all.`,
   };
 }

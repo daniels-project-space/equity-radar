@@ -92,7 +92,10 @@ async function doRefreshTicker(
   if (!skipPrices) {
     try {
       const bars = await fetchDailyBars(t);
-      const recent = bars.slice(-1300);
+      // Matches the ten-year fetch. `known` is the dedupe guard and is read
+      // fresh each time, so re-ingesting deeper history adds the older bars
+      // without rewriting the ones already stored.
+      const recent = bars.slice(-2600);
       const known = await ctx.runQuery(internal.data.barDatesFor, { ticker: t });
       for (let i = 0; i < recent.length; i += 400) {
         await ctx.runMutation(internal.data.storeBars, {
@@ -150,7 +153,15 @@ async function doRefreshTicker(
 
   // ---- fundamentals -------------------------------------------------
   try {
-    const { quarters } = await fetchQuarters(cik, 12);
+    // Eleven years, not three. The whole companyfacts document is already
+    // downloaded and the old limit threw away three quarters of it for nothing,
+    // which quietly starved several things written to expect more:
+    // readTrajectory's three-year CAGR reads quarters 12-15 and so was undefined
+    // for every name, leaving growth estimated from the two noisiest windows at
+    // reweighted importance; dilutionRate wants 13; the own-history P/E wanted 12
+    // and found 9; and the anchor series behind the entry and exit marks could
+    // not reach back further than the data did. Costs nothing extra over the wire.
+    const { quarters } = await fetchQuarters(cik, 44);
     if (quarters.length > 0) {
       await ctx.runMutation(internal.data.storeQuarters, {
         ticker: t,

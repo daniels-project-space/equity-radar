@@ -28,7 +28,8 @@ const RANGES = [
   { label: "3M", days: 63 },
   { label: "1Y", days: 252 },
   { label: "2Y", days: 504 },
-  { label: "5Y", days: 100000 },
+  { label: "5Y", days: 1260 },
+  { label: "10Y", days: 100000 },
 ] as const;
 
 /** Height lightweight-charts gives the time axis at this font size. */
@@ -169,6 +170,7 @@ export function PriceChart({
   costBasis,
   closesOnly,
   relativeBands,
+  relativeNote,
 }: {
   bars: Bar[];
   bands: Band[];
@@ -180,6 +182,8 @@ export function PriceChart({
   closesOnly?: boolean;
   /** Zones from this name's own pricing history, as multiples of the anchor. */
   relativeBands?: { label: string; action: string; multipleLo: number; multipleHi: number }[];
+  /** How deep that sample is, and whether it had to start late. */
+  relativeNote?: string;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -460,14 +464,15 @@ export function PriceChart({
               relative ? "Zones: own history" : "Zones: fair value",
               relative,
               setRelative,
-              "Switch between what the fundamentals say it is worth and how this name has actually been priced against its own anchor. A grower in an expensive market rarely enters the first kind of zone."
+              "Switch between what the fundamentals say it is worth and how this name has actually been priced against its own anchor. A grower in an expensive market rarely enters the first kind of zone." +
+                (relativeNote ? ` ${relativeNote}` : "")
             )
           : null}
         {toggle(
           "Zone crossings",
           showMarkers,
           setShowMarkers,
-          "Where price crossed the zone boundary, priced against the anchor as it stood at the time. Measured on Bitcoin these did not predict: median forward 90-day return -8.3% against a +4.2% baseline. Shown for inspection, not as entries."
+          "Where price crossed the zone boundary, priced against the anchor as it stood at the time. Measured over ten years and thirteen names: the green marks did NOT work — median forward 90-day return -7.0%, only 11 of 27 positive. The red marks did — price fell a median 17.8% over the next 90 days, 13 of 19 correct. An earlier read on a quarter of this sample showed the green marks at +19.7% and it did not survive the larger one. Shown for inspection; the green arrows in particular are not entries."
         )}
         </div>
       </div>

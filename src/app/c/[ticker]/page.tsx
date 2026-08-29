@@ -54,7 +54,10 @@ export default function CompanyPage() {
   const ticker = (params.ticker ?? "").toUpperCase();
 
   const data = useQuery(api.watchlist.get, { ticker });
-  const series = useQuery(api.watchlist.priceSeries, { ticker, days: 1300 });
+  // Ten years. The anchor series now reaches back that far, and the zone
+  // crossings can only be drawn where both exist — asking for five years of
+  // bars threw away half the marks the model had already worked out.
+  const series = useQuery(api.watchlist.priceSeries, { ticker, days: 2600 });
   // The query is columnar to avoid restating the field names 1,300 times. It is
   // widened back here, once, so every consumer below keeps working on bars.
   const bars = useMemo(() => {
@@ -271,6 +274,12 @@ export default function CompanyPage() {
             }
             closesOnly={isCrypto}
             relativeBands={m?.relativeBands?.bands}
+            relativeNote={
+              m?.relativeBands
+                ? `Measured over ${Math.max(1, Math.round((m.relativeBands.observations ?? 0) / 252))} years.` +
+                  ` Over that window the anchor itself ranged ${m.relativeBands.anchorSpread}x against ${m.relativeBands.priceSpread}x for the price, so ${m.relativeBands.denominatorShare}x more of the ratio's movement is the denominator than the stock — read the percentile as a rough guide, not a level.`
+                : undefined
+            }
           />
         ) : (
           <p className="py-16 text-center text-[12px] text-[var(--muted)]">
