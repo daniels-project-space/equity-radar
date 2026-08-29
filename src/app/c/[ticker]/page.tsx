@@ -282,13 +282,20 @@ export default function CompanyPage() {
           )}
         </Column>
 
-        <Column title="How good it is">
+        {/* Moat pillars are read from filings, so the heading changes for an
+            asset that has none rather than labelling a column of price
+            statistics as a quality assessment. */}
+        <Column title={isCrypto ? "How it behaves" : "How good it is"}>
           {m?.linkage && <LinkagePanel data={m.linkage} />}
           {range && <RangePanel data={range} price={p?.last} />}
           {p?.profile && <ProfilePanel data={p.profile} price={p?.last} />}
-          <PillarBars pillars={pillars} />
+          {!isCrypto && <PillarBars pillars={pillars} />}
         </Column>
 
+        {/* Guidance and forward multiples come from earnings releases. Bitcoin
+            was being shown "no guidance found in the latest earnings release"
+            and an empty P/E row, which describes a filing it will never make. */}
+        {!isCrypto && (
         <Column title="What's next">
           <Projections
             revYoY={m?.revYoY}
@@ -304,9 +311,12 @@ export default function CompanyPage() {
             sourceUrl={m?.guidanceSourceUrl}
           />
         </Column>
+        )}
       </div>
 
       {/* ---- competitors ---- */}
+      {/* Peers are found by SEC industry code, which crypto has none of. */}
+      {!isCrypto && (
       <Column title="Closest competitors">
         <PeerTable
           rows={(m?.peerRows ?? []) as PeerRow[]}
@@ -323,6 +333,7 @@ export default function CompanyPage() {
           }}
         />
       </Column>
+      )}
 
       {/* ---- the short version, computed live so it cannot go stale ---- */}
       {facts.length > 0 && (
