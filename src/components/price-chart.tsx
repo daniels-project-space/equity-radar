@@ -53,36 +53,83 @@ function sma(bars: Bar[], period: number): { time: string; value: number }[] {
 }
 
 /**
- * Historical crossings into the buy zone and out above the band table.
+ * Crossings into and out of the zone, measured against the anchor as it stood
+ * at the time.
  *
- * These mark what already happened at *today's* fair value — not a backtest.
- * Because the anchor moves with earnings and the peer group, the same chart
- * will mark different days next quarter. Crossings within 10 sessions of the
- * previous one are dropped so a stock oscillating on a boundary does not
- * produce a wall of arrows.
+ * The earlier version compared every past close against *today's* band prices.
+ * On Bitcoin that meant a buy ceiling built from a 2026 cost basis of $52,628
+ * applied to 2023 prices near $25,000, so the only crossings it could find were
+ * falls from local highs — it marked tops and called them entries. Zones are
+ * kept as multiples of the anchor and re-priced against the contemporaneous
+ * anchor instead, and nothing is drawn where no anchor history exists rather
+ * than falling back to today's. Crossings within 10 sessions of the previous
+ * one are dropped so an asset oscillating on a boundary does not produce a wall
+ * of arrows.
  */
-function crossings(bars: Bar[], bands: Band[]): Marker[] {
+function crossings(
+  bars: Bar[],
+  bands: Band[],
+  costBasis?: { date: string; value: number }[]
+): Marker[] {
   if (bands.length === 0 || bars.length < 2) return [];
 
   const buyBands = bands.filter((b) => b.action === "BUY" || b.action === "BUY_AGGRESSIVE");
-  const buyCeiling = buyBands.length ? Math.max(...buyBands.map((b) => b.priceHi)) : undefined;
+  if (buyBands.length === 0) return [];
+
+  // The multiple of the anchor at which the buy zone ends, rather than the
+  // price. A price level is only meaningful alongside the anchor it came from.
+  const buyMultiple = Math.max(...buyBands.map((b) => b.multipleHi));
   const trimBand = bands.find((b) => b.action === "TRIM");
-  const trimFloor = trimBand?.priceLo;
+  const trimMultiple = trimBand?.multipleLo;
+
+  // Without a contemporaneous anchor there is nothing causal to mark. The old
+  // version compared every past price against today's levels, which for Bitcoin
+  // meant a "buy zone" ceiling built from a 2026 cost basis applied to 2023
+  // prices — so the only crossings it could find were falls from local highs.
+  if (!costBasis || costBasis.length < 30) return [];
+
+  const basisByDate = new Map(costBasis.map((p) => [p.date, p.value]));
+  let carried: number | undefined;
+  const anchorAt = (date: string): number | undefined => {
+    const v = basisByDate.get(date);
+    if (v !== undefined && v > 0) carried = v;
+    return carried;
+  };
 
   const out: Marker[] = [];
   let lastIdx = -99;
 
   for (let i = 1; i < bars.length; i++) {
-    const prev = bars[i - 1].c;
-    const now = bars[i].c;
+    const anchorNow = anchorAt(bars[i].date);
+    const anchorPrev = anchorAt(bars[i - 1].date);
+    if (!anchorNow || !anchorPrev) continue;
     if (i - lastIdx < 10) continue;
 
-    if (buyCeiling !== undefined && prev > buyCeiling && now <= buyCeiling) {
-      out.push({ time: bars[i].date, position: "belowBar", color: "#34d399", shape: "arrowUp", text: "entry" });
+    const ceilNow = anchorNow * buyMultiple;
+    const ceilPrev = anchorPrev * buyMultiple;
+
+    if (bars[i - 1].c > ceilPrev && bars[i].c <= ceilNow) {
+      out.push({
+        time: bars[i].date,
+        position: "belowBar",
+        color: "#34d399",
+        shape: "arrowUp",
+        text: "in zone",
+      });
       lastIdx = i;
-    } else if (trimFloor !== undefined && prev < trimFloor && now >= trimFloor) {
-      out.push({ time: bars[i].date, position: "aboveBar", color: "#f87171", shape: "arrowDown", text: "rich" });
-      lastIdx = i;
+    } else if (trimMultiple !== undefined) {
+      const floorNow = anchorNow * trimMultiple;
+      const floorPrev = anchorPrev * trimMultiple;
+      if (bars[i - 1].c < floorPrev && bars[i].c >= floorNow) {
+        out.push({
+          time: bars[i].date,
+          position: "aboveBar",
+          color: "#f87171",
+          shape: "arrowDown",
+          text: "stretched",
+        });
+        lastIdx = i;
+      }
     }
   }
   return out.slice(-14);
@@ -93,15 +140,22 @@ export function PriceChart({
   bands,
   fairValue,
   earningsDates,
+  costBasis,
+  closesOnly,
 }: {
   bars: Bar[];
   bands: Band[];
   fairValue?: number;
   earningsDates?: string[];
+  /** Anchor history, so zones can be drawn as they stood at the time. */
+  costBasis?: { date: string; value: number }[];
+  /** True when open/high/low are copies of the close and candles would be a lie. */
+  closesOnly?: boolean;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | null>(null);
+  const basisRef = useRef<ISeriesApi<"Line"> | null>(null);
   const sma50Ref = useRef<ISeriesApi<"Line"> | null>(null);
   const sma200Ref = useRef<ISeriesApi<"Line"> | null>(null);
   const fvLineRef = useRef<IPriceLine | null>(null);
@@ -110,7 +164,13 @@ export function PriceChart({
   const [rects, setRects] = useState<{ band: Band; top: number; height: number }[]>([]);
   const [paneHeight, setPaneHeight] = useState(0);
   const [showBands, setShowBands] = useState(true);
-  const [showMarkers, setShowMarkers] = useState(true);
+    // Off by default. These were measured on Bitcoin after the look-ahead was
+  // removed: seven crossings, median forward 90-day return -8.3% against a
+  // +4.2% baseline, one of six positive. Fixing the arithmetic did not make
+  // them a signal — it only stopped them being a fabricated one. They are kept
+  // as an inspectable overlay rather than shown by default, because an arrow
+  // labelled "entry" on a chart is read as advice however it is captioned.
+  const [showMarkers, setShowMarkers] = useState(false);
   const [showMa, setShowMa] = useState(true);
   const [showEarnings, setShowEarnings] = useState(true);
 
@@ -135,14 +195,20 @@ export function PriceChart({
       height: 420,
     });
 
-    const series = chart.addCandlestickSeries({
-      upColor: "#34d399",
-      downColor: "#f87171",
-      borderUpColor: "#34d399",
-      borderDownColor: "#f87171",
-      wickUpColor: "#34d399",
-      wickDownColor: "#f87171",
-    });
+    // The free crypto price feed publishes closes only, so open, high and low
+    // are copies of the close. Drawn as candles those render as a row of flat
+    // dashes with no bodies or wicks — a chart that looks broken because it is
+    // depicting range that does not exist. A line is the honest shape for it.
+    const series = closesOnly
+      ? chart.addLineSeries({ color: "#e6edf3", lineWidth: 2, priceLineVisible: false })
+      : chart.addCandlestickSeries({
+          upColor: "#34d399",
+          downColor: "#f87171",
+          borderUpColor: "#34d399",
+          borderDownColor: "#f87171",
+          wickUpColor: "#34d399",
+          wickDownColor: "#f87171",
+        });
 
     const mkLine = (color: string) =>
       chart.addLineSeries({
@@ -157,6 +223,16 @@ export function PriceChart({
     seriesRef.current = series;
     sma50Ref.current = mkLine("#38bdf8");
     sma200Ref.current = mkLine("#a78bfa");
+    // The anchor itself, drawn as a line. For crypto this is the price the
+    // network paid, which is the one genuinely causal reference on the chart.
+    basisRef.current = chart.addLineSeries({
+      color: "#fbbf24",
+      lineWidth: 2,
+      lineStyle: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
 
     const ro = new ResizeObserver(() => {
       chart.applyOptions({ width: el.clientWidth });
@@ -177,6 +253,7 @@ export function PriceChart({
       seriesRef.current = null;
       sma50Ref.current = null;
       sma200Ref.current = null;
+      basisRef.current = null;
       fvLineRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -214,7 +291,13 @@ export function PriceChart({
     if (!series || !chart) return;
 
     const slice = bars.slice(-RANGES[rangeIdx].days);
-    series.setData(slice.map((b) => ({ time: b.date, open: b.o, high: b.h, low: b.l, close: b.c })));
+    if (closesOnly) {
+      (series as ISeriesApi<"Line">).setData(slice.map((b) => ({ time: b.date, value: b.c })));
+    } else {
+      (series as ISeriesApi<"Candlestick">).setData(
+        slice.map((b) => ({ time: b.date, open: b.o, high: b.h, low: b.l, close: b.c }))
+      );
+    }
 
     // Moving averages are computed on the full history then trimmed, so the
     // 200-day line is correct at the left edge of a short window instead of
@@ -223,7 +306,12 @@ export function PriceChart({
     sma50Ref.current?.setData(showMa ? sma(bars, 50).filter((p) => p.time >= from) : []);
     sma200Ref.current?.setData(showMa ? sma(bars, 200).filter((p) => p.time >= from) : []);
 
-    const marks: Marker[] = showMarkers ? crossings(slice, bands) : [];
+    // The anchor line, trimmed to the visible window.
+    basisRef.current?.setData(
+      costBasis?.length ? costBasis.filter((pt) => pt.date >= (slice[0]?.date ?? "")).map((pt) => ({ time: pt.date, value: pt.value })) : []
+    );
+
+    const marks: Marker[] = showMarkers ? crossings(slice, bands, costBasis) : [];
     if (showEarnings && earningsDates?.length) {
       const inRange = new Set(slice.map((b) => b.date));
       for (const d of earningsDates) {
@@ -289,7 +377,12 @@ export function PriceChart({
           {toggle("Zones", showBands, setShowBands, "Valuation bands around fair value")}
           {toggle("MA 50/200", showMa, setShowMa, "50- and 200-day simple moving averages")}
           {toggle("Earnings", showEarnings, setShowEarnings, "Dates an earnings release was filed")}
-          {toggle("Entries", showMarkers, setShowMarkers, "Crossings into the buy zone or above the table")}
+          {toggle(
+          "Zone crossings",
+          showMarkers,
+          setShowMarkers,
+          "Where price crossed the zone boundary, priced against the anchor as it stood at the time. Measured on Bitcoin these did not predict: median forward 90-day return -8.3% against a +4.2% baseline. Shown for inspection, not as entries."
+        )}
         </div>
       </div>
 

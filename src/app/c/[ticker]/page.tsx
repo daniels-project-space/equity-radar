@@ -9,6 +9,7 @@ import { Disclosure } from "@/components/disclosure";
 import { keyFacts, TONE_COLOR } from "@/lib/key-facts";
 import { signalLabel } from "@/lib/signal-label";
 import { projectReturns } from "@/lib/projection";
+import { rangeContext } from "@/lib/range-context";
 import { useLiveQuote } from "@/lib/use-live-quote";
 import {
   usd,
@@ -37,6 +38,7 @@ import {
   PeerTable,
   ExpectationsPanel,
   ReturnOutlook,
+  RangePanel,
   CyclePanel,
   type Method,
   type Pillar,
@@ -50,6 +52,11 @@ export default function CompanyPage() {
 
   const data = useQuery(api.watchlist.get, { ticker });
   const bars = useQuery(api.watchlist.priceSeries, { ticker, days: 1300 });
+  const cryptoAsset = data?.metrics?.assetType === "crypto" ? ticker.toLowerCase() : undefined;
+  const costBasis = useQuery(
+    api.watchlist.costBasisSeries,
+    cryptoAsset ? { asset: cryptoAsset } : "skip"
+  );
   const refresh = useAction(api.ingest.refreshTicker);
   const add = useMutation(api.watchlist.add);
   const remove = useMutation(api.watchlist.remove);
@@ -83,6 +90,9 @@ export default function CompanyPage() {
   // lines cannot contradict the chart or outlive the model that wrote them.
   const facts = keyFacts({ ticker, price: p, bands: b, metrics: m, score: s });
   const sig = signalLabel(s?.verdict, p?.dipState, p?.dipScore);
+  // What the chart itself says, independent of the valuation. For names that
+  // have traded far outside their zone table this is the missing half.
+  const range = bars?.length ? rangeContext(bars.map((x) => x.c), bandList) : null;
   // Only on the detail view — a tile has room for what a stock is, not for a
   // five-year scenario with a range attached.
   // Not computed for crypto. The projection compounds a fair value at the growth
@@ -213,6 +223,8 @@ export default function CompanyPage() {
             bands={bandList}
             fairValue={b?.fairValue}
             earningsDates={data.earningsDates}
+            costBasis={costBasis ?? undefined}
+            closesOnly={isCrypto}
           />
         ) : (
           <p className="py-16 text-center text-[12px] text-[var(--muted)]">
@@ -263,6 +275,7 @@ export default function CompanyPage() {
         </Column>
 
         <Column title="How good it is">
+          {range && <RangePanel data={range} price={p?.last} />}
           <PillarBars pillars={pillars} />
         </Column>
 

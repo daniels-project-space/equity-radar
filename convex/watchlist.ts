@@ -114,6 +114,27 @@ export const get = query({
   },
 });
 
+/**
+ * The network's cost basis over time, for crypto.
+ *
+ * Needed because a single present-day cost basis drawn across ten years of
+ * history is look-ahead: Bitcoin's realized price was a fraction of today's in
+ * 2023, so today's "accumulation" level sits near what were then all-time highs.
+ * Banding the chart against the contemporaneous basis is the only version of
+ * this that a reader could have acted on.
+ */
+export const costBasisSeries = query({
+  args: { asset: v.string() },
+  handler: async (ctx, { asset }) => {
+    const row = await ctx.db
+      .query("simulations")
+      .withIndex("by_key", (i) => i.eq("key", `onchain:${asset.toLowerCase()}`))
+      .unique();
+    const rp = (row?.result?.realizedPrice ?? []) as { date: string; value: number }[];
+    return rp.filter((p) => p?.date && Number.isFinite(p.value));
+  },
+});
+
 export const priceSeries = query({
   args: { ticker: v.string(), days: v.optional(v.number()) },
   handler: async (ctx, { ticker, days = 1260 }) => {

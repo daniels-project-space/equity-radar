@@ -626,3 +626,107 @@ function Row({ label, value }: { label: string; value: string }) {
     </>
   );
 }
+
+export type RangeData = {
+  low: number;
+  high: number;
+  position: number;
+  fromHigh: number;
+  fromLow: number;
+  sessions: number;
+  bandCoverage?: number;
+  sessionsInBand?: number;
+  retracements: { label: string; price: number }[];
+  note?: string;
+};
+
+/**
+ * The range the asset has actually traded in, alongside how much of it the
+ * valuation speaks to.
+ *
+ * Sits next to the valuation rather than inside it, because the two answer
+ * different questions and the useful moment is when they disagree.
+ */
+export function RangePanel({ data, price }: { data: RangeData; price?: number }) {
+  const pos = Math.max(0, Math.min(100, data.position));
+
+  return (
+    <section className="panel p-4">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          Where it sits in its own range
+        </h2>
+        <span className="text-[10px] text-[var(--muted)]">{data.sessions} sessions</span>
+      </div>
+
+      <div className="mb-1 relative h-6 rounded-sm bg-[var(--line)]">
+        <div
+          className="absolute inset-y-0 left-0 rounded-sm opacity-25"
+          style={{ width: `${pos}%`, background: "var(--accent)" }}
+        />
+        <div
+          className="absolute inset-y-0 w-[2px] bg-[var(--accent)]"
+          style={{ left: `${pos}%` }}
+        />
+        {/* Retracement landmarks, drawn faintly — see lib/range-context.ts for
+            why they are not treated as levels where anything should happen. */}
+        {data.retracements.map((r) => {
+          const at = ((r.price - data.low) / (data.high - data.low)) * 100;
+          if (at < 2 || at > 98) return null;
+          return (
+            <div
+              key={r.label}
+              className="absolute inset-y-0 w-px bg-[var(--muted)] opacity-30"
+              style={{ left: `${at}%` }}
+              title={`${r.label} retracement — ${usd(r.price)}`}
+            />
+          );
+        })}
+      </div>
+      <div className="mb-3 flex justify-between text-[10px] text-[var(--muted)]">
+        <span>{usd(data.low)}</span>
+        <span className="text-[var(--text)]">
+          {Math.round(pos)}% of range{price ? ` · ${usd(price)}` : ""}
+        </span>
+        <span>{usd(data.high)}</span>
+      </div>
+
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+        <dt className="text-[var(--muted)]">From the high</dt>
+        <dd className="tabular text-right" style={{ color: "var(--bad)" }}>
+          {data.fromHigh}%
+        </dd>
+        <dt className="text-[var(--muted)]">From the low</dt>
+        <dd className="tabular text-right" style={{ color: "var(--good)" }}>
+          +{data.fromLow}%
+        </dd>
+        {data.bandCoverage !== undefined && (
+          <>
+            <dt className="text-[var(--muted)]">Range the zones cover</dt>
+            <dd className="tabular text-right">{data.bandCoverage}%</dd>
+          </>
+        )}
+        {data.sessionsInBand !== undefined && (
+          <>
+            <dt className="text-[var(--muted)]">Sessions inside the zones</dt>
+            <dd className="tabular text-right">{data.sessionsInBand}%</dd>
+          </>
+        )}
+      </dl>
+
+      {data.note && (
+        <p className="mt-2.5 border-t border-[var(--line)] pt-2 text-[10px] leading-relaxed text-[var(--warn)]">
+          {data.note}
+        </p>
+      )}
+
+      <p className="mt-2 text-[10px] leading-relaxed text-[var(--muted)]">
+        The faint marks are Fibonacci retracements of this range. They are drawn as landmarks, not
+        as levels where price is expected to turn: tested across the Dow, NASDAQ and DAX, the odds
+        of a bounce on a Fibonacci zone were statistically indistinguishable from a randomly chosen
+        level, and this project&rsquo;s own tournament scored the 38&ndash;62% zone at &minus;5.4pp
+        against buy-and-hold.
+      </p>
+    </section>
+  );
+}
