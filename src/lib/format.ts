@@ -1,5 +1,7 @@
 export const usd = (n?: number | null, dp = 2) =>
-  typeof n === "number" && Number.isFinite(n) ? `$${n.toFixed(dp)}` : "—";
+  typeof n === "number" && Number.isFinite(n)
+    ? `$${n.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp })}`
+    : "—";
 
 export const bigUsd = (n?: number | null) => {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";

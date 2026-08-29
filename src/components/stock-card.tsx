@@ -8,6 +8,7 @@ import { X } from "lucide-react";
 import { Sparkline } from "./sparkline";
 import { usd, signedPct, num, ACTION_COLOR, VERDICT_COLOR, scoreColor, isStale } from "@/lib/format";
 import { SEVERITY_COLOR, type Severity } from "@/lib/notify";
+import { keyFacts, TONE_COLOR } from "@/lib/key-facts";
 import { signalLabel } from "@/lib/signal-label";
 
 export type CardAlert = { _id: string; type: string; severity: Severity; title: string };
@@ -15,6 +16,7 @@ export type CardAlert = { _id: string; type: string; severity: Severity; title: 
 type Card = {
   ticker: string;
   name: string;
+  assetType?: string;
   priceStats?: {
     last?: number;
     prevClose?: number;
@@ -22,9 +24,20 @@ type Card = {
     dipState?: string;
     dipScore?: number;
   } | null;
-  metrics?: { moatTrend?: number; latestPeriodEnd?: string } | null;
+  metrics?: {
+    moatTrend?: number;
+    latestPeriodEnd?: string;
+    assetType?: string;
+    cycle?: { zone?: string; tsmsv?: number; hasOnChain?: boolean };
+  } | null;
   score?: { asymmetry?: number; verdict?: string } | null;
-  bands?: { currentBand?: string; upside?: number; bands?: { label: string; action: string }[] } | null;
+  bands?: {
+    currentBand?: string;
+    upside?: number;
+    fairValue?: number;
+    confidence?: string;
+    bands?: { label: string; action: string }[];
+  } | null;
 };
 
 /** Moat direction as one glyph — the company page has the breakdown. */
@@ -58,12 +71,35 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
       : "var(--muted)";
   const verdict = row.score?.verdict ?? "—";
   const sig = signalLabel(row.score?.verdict, p?.dipState, p?.dipScore);
+
+  // Crypto has no verdict because it has no filings to score. Falling through to
+  // the equity label rendered Bitcoin as "Not enough data" next to ten years of
+  // history, which is the opposite of true — the cycle read is what it has.
+  const isCrypto = row.metrics?.assetType === "crypto";
+  const cycle = row.metrics?.cycle;
+  const cryptoLabel = cycle?.hasOnChain
+    ? (cycle.zone ?? "cycle unknown")
+    : "price only — no on-chain data";
   const [confirming, setConfirming] = useState(false);
   const remove = useMutation(api.watchlist.remove);
 
-  // The card is the alert. A separate "needs attention" list said the same
-  // thing in a second place, which is one more thing to read, not less.
-  const top = alerts[0];
+  // Derived from current data, not from stored alert rows. Those were written at
+  // evaluation time and never expired, so MSTR was still showing "above the band
+  // table" — an internal signal key, referring to a valuation model the app no
+  // longer uses. Sharing keyFacts with the company page also means the card and
+  // the detail view cannot say different things about the same company.
+  // Alerts are still used for the critical border, because a critical alert is
+  // an event that happened rather than a description of the present — that kind
+  // does not go stale the way the old headline text did.
+  const hasCritical = alerts.some((a) => a.severity === "critical");
+
+  const headline = keyFacts({
+    ticker: row.ticker,
+    price: p ?? undefined,
+    bands: row.bands ?? undefined,
+    metrics: row.metrics ?? undefined,
+    score: row.score ?? undefined,
+  })[0];
 
   return (
     <div className="group relative">
@@ -107,7 +143,7 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
       // those too made every card look urgent, which is the same as none of
       // them being urgent.
       style={
-        top?.severity === "critical"
+        hasCritical
           ? { borderLeftColor: SEVERITY_COLOR.critical, borderLeftWidth: 2 }
           : undefined
       }
@@ -140,14 +176,20 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
         <span
           className="chip"
           style={{
-            color: sig.fallingKnife
-              ? "var(--warn)"
-              : (VERDICT_COLOR[verdict] ?? "var(--muted)"),
-            borderColor: `${sig.fallingKnife ? "#fbbf24" : (VERDICT_COLOR[verdict] ?? "#334155")}55`,
+            color: isCrypto
+              ? "var(--muted)"
+              : sig.fallingKnife
+                ? "var(--warn)"
+                : (VERDICT_COLOR[verdict] ?? "var(--muted)"),
+            borderColor: `${isCrypto ? "#334155" : sig.fallingKnife ? "#fbbf24" : (VERDICT_COLOR[verdict] ?? "#334155")}55`,
           }}
-          title={sig.hint}
+          title={
+            isCrypto
+              ? "Crypto is not scored on filings — this is where it sits against the price the network paid."
+              : sig.hint
+          }
         >
-          {sig.headline}
+          {isCrypto ? cryptoLabel : sig.headline}
         </span>
         <div className="flex items-center gap-2 text-[11px]">
           {zoneLabel && (
@@ -167,18 +209,13 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
 
       {(top || isStale(row.metrics?.latestPeriodEnd)) && (
         <div className="border-t border-[var(--line)] pt-2 text-[10px] leading-snug">
-          {top && (
+          {headline && (
             <div className="flex items-start gap-1.5">
               <span
                 className="mt-[5px] h-1 w-1 shrink-0 rounded-full"
-                style={{ background: SEVERITY_COLOR[top.severity] }}
+                style={{ background: TONE_COLOR[headline.tone] }}
               />
-              <span className="text-[var(--muted)]">
-                {top.title.replace(`${row.ticker}: `, "").replace(`${row.ticker} `, "")}
-                {alerts.length > 1 && (
-                  <span className="ml-1 opacity-60">+{alerts.length - 1} more</span>
-                )}
-              </span>
+              <span className="text-[var(--muted)]">{headline.text}</span>
             </div>
           )}
           {isStale(row.metrics?.latestPeriodEnd) && (

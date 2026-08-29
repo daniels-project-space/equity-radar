@@ -32,8 +32,17 @@ export default defineSchema({
 
   watchlist: defineTable({
     ticker: v.string(),
+    /** Empty for crypto, which has no filer. */
     cik: v.string(),
     name: v.string(),
+    /**
+     * "equity" (default when absent) or "crypto". This is load-bearing rather
+     * than cosmetic: almost every pipeline behind this table assumes filings and
+     * a stock quote exist, and both assumptions are false for crypto.
+     */
+    assetType: v.optional(v.string()),
+    /** CoinMetrics asset slug, e.g. "btc". Crypto only. */
+    cryptoAsset: v.optional(v.string()),
     addedAt: v.number(),
     addedReason: v.optional(v.string()),
     notes: v.optional(v.string()),

@@ -12,7 +12,11 @@ import { allocate, type Candidate } from "./lib/allocator";
 export const today = query({
   args: {},
   handler: async (ctx) => {
-    const watch = await ctx.db.query("watchlist").collect();
+    const watch = (await ctx.db.query("watchlist").collect()).filter(
+      (w) => w.assetType !== "crypto"
+    ); // The DCA allocator gates on filings, moat and verdict, none of which
+      // a crypto asset has — it would reject them with a confusing reason rather
+      // than a true one, so they are excluded at the source.
     const candidates: (Candidate & { dipState?: string; dipScore?: number })[] = [];
 
     // Conviction multipliers come from measured forward returns per signal
@@ -99,7 +103,11 @@ export const history = query({
 export const snapshotInputs = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const watch = await ctx.db.query("watchlist").collect();
+    const watch = (await ctx.db.query("watchlist").collect()).filter(
+      (w) => w.assetType !== "crypto"
+    ); // The DCA allocator gates on filings, moat and verdict, none of which
+      // a crypto asset has — it would reject them with a confusing reason rather
+      // than a true one, so they are excluded at the source.
     const out = [];
     for (const w of watch) {
       if (w.muted) continue;
@@ -309,7 +317,11 @@ export const calibration = query({
 export const simulationInputs = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const watch = await ctx.db.query("watchlist").collect();
+    const watch = (await ctx.db.query("watchlist").collect()).filter(
+      (w) => w.assetType !== "crypto"
+    ); // The DCA allocator gates on filings, moat and verdict, none of which
+      // a crypto asset has — it would reject them with a confusing reason rather
+      // than a true one, so they are excluded at the source.
     const out = [];
     for (const w of watch) {
       const bands = await ctx.db

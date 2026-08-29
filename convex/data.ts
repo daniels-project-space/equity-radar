@@ -9,7 +9,13 @@ export const watchlistTickers = internalQuery({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db.query("watchlist").collect();
-    return rows.map((r) => ({ ticker: r.ticker, cik: r.cik, muted: r.muted }));
+    return rows.map((r) => ({
+      ticker: r.ticker,
+      cik: r.cik,
+      muted: r.muted,
+      assetType: r.assetType ?? "equity",
+      cryptoAsset: r.cryptoAsset,
+    }));
   },
 });
 

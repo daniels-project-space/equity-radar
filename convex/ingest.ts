@@ -740,7 +740,10 @@ export const refreshWatchlist = internalAction({
   args: { skipPrices: v.optional(v.boolean()) },
   handler: async (ctx, { skipPrices }): Promise<{ processed: number; failed: string[] }> => {
     const runId = await ctx.runMutation(internal.data.startRun, { task: "refreshWatchlist" });
-    const rows = await ctx.runQuery(internal.data.watchlistTickers, {});
+    const all = await ctx.runQuery(internal.data.watchlistTickers, {});
+    // Equity-only: this path reads SEC filings or a stock quote, neither of
+    // which exists for crypto.
+    const rows = all.filter((r) => r.assetType !== "crypto");
     const failed: string[] = [];
     let processed = 0;
     for (const row of rows) {
@@ -896,7 +899,10 @@ export const extractReleasesAll = internalAction({
   args: { limit: v.optional(v.number()), maxTickers: v.optional(v.number()) },
   handler: async (ctx, { limit, maxTickers }): Promise<{ processed: number; adjEps: number; covered: number }> => {
     const runId = await ctx.runMutation(internal.data.startRun, { task: "extractReleases" });
-    const rows = await ctx.runQuery(internal.data.watchlistTickers, {});
+    const all = await ctx.runQuery(internal.data.watchlistTickers, {});
+    // Equity-only: this path reads SEC filings or a stock quote, neither of
+    // which exists for crypto.
+    const rows = all.filter((r) => r.assetType !== "crypto");
     const budget = maxTickers ?? 5;
     const deadline = Date.now() + 7 * 60_000;
 
@@ -934,7 +940,10 @@ export const extractReleasesAll = internalAction({
 export const pollFilings = internalAction({
   args: {},
   handler: async (ctx): Promise<{ checked: number; fresh: number }> => {
-    const rows = await ctx.runQuery(internal.data.watchlistTickers, {});
+    const all = await ctx.runQuery(internal.data.watchlistTickers, {});
+    // Equity-only: this path reads SEC filings or a stock quote, neither of
+    // which exists for crypto.
+    const rows = all.filter((r) => r.assetType !== "crypto");
     let fresh = 0;
     for (const row of rows) {
       try {
@@ -970,7 +979,8 @@ export const pollFilings = internalAction({
 export const refreshQuotes = internalAction({
   args: {},
   handler: async (ctx): Promise<{ updated: number; skipped: number }> => {
-    const watch = await ctx.runQuery(internal.data.watchlistTickers, {});
+    const watchAll = await ctx.runQuery(internal.data.watchlistTickers, {});
+    const watch = watchAll.filter((w) => w.assetType !== "crypto");
     let updated = 0;
     let skipped = 0;
 

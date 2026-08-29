@@ -17,7 +17,10 @@ import { runTournament } from "./lib/tournament";
 async function runSimulation(ctx: ActionCtx) {
   // Every watchlist name with enough history — the simulation's reference is a
   // trailing average, so it needs no valuation input and carries no look-ahead.
-  const watch = await ctx.runQuery(internal.data.watchlistTickers, {});
+  const watchAll = await ctx.runQuery(internal.data.watchlistTickers, {});
+  // Equity-only. Crypto bars in an equity calibration would mix two return
+  // distributions that have nothing to do with each other.
+  const watch = watchAll.filter((w) => w.assetType !== "crypto");
   const assets: SimAsset[] = [];
   for (const w of watch) {
     const bars = await ctx.runQuery(internal.data.fullBarsFor, { ticker: w.ticker, limit: 1300 });
@@ -65,7 +68,10 @@ export const snapshotAllocation = internalAction({
 /* ------------------------------------------------------------------ */
 
 async function runCalibration(ctx: ActionCtx) {
-  const watch = await ctx.runQuery(internal.data.watchlistTickers, {});
+  const watchAll = await ctx.runQuery(internal.data.watchlistTickers, {});
+  // Equity-only. Crypto bars in an equity calibration would mix two return
+  // distributions that have nothing to do with each other.
+  const watch = watchAll.filter((w) => w.assetType !== "crypto");
   const assets = [];
   for (const w of watch) {
     const bars = await ctx.runQuery(internal.data.fullBarsFor, { ticker: w.ticker, limit: 1300 });
@@ -256,7 +262,10 @@ export const searchRulesAll = action({
       consistent: boolean;
     }[];
   }> => {
-    const watch = await ctx.runQuery(internal.data.watchlistTickers, {});
+    const watchAll = await ctx.runQuery(internal.data.watchlistTickers, {});
+  // Equity-only. Crypto bars in an equity calibration would mix two return
+  // distributions that have nothing to do with each other.
+  const watch = watchAll.filter((w) => w.assetType !== "crypto");
     const combos = combinations(maxSize ?? 2);
     const acc = new Map<string, { label: string; ins: number[]; outs: number[]; expo: number[] }>();
     let names = 0;
@@ -320,7 +329,10 @@ export const searchRulesAll = action({
 /* ------------------------------------------------------------------ */
 
 async function tournament(ctx: ActionCtx, folds: number) {
-  const watch = await ctx.runQuery(internal.data.watchlistTickers, {});
+  const watchAll = await ctx.runQuery(internal.data.watchlistTickers, {});
+  // Equity-only. Crypto bars in an equity calibration would mix two return
+  // distributions that have nothing to do with each other.
+  const watch = watchAll.filter((w) => w.assetType !== "crypto");
   const assets = [];
   for (const w of watch) {
     const bars = await ctx.runQuery(internal.data.fullBarsFor, { ticker: w.ticker, limit: 5000 });

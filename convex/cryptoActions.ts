@@ -168,13 +168,18 @@ export const dedupeCryptoBars = action({
 
 export const refreshCryptoCron = internalAction({
   args: {},
-  handler: async (ctx) => {
-    const out = [];
-    for (const [ticker, asset] of [["BTC", "btc"], ["ETH", "eth"]]) {
+  handler: async (ctx): Promise<any[]> => {
+    // Driven by the watchlist rather than a hardcoded pair, so an asset the
+    // user adds is actually refreshed instead of going stale forever.
+    const all = await ctx.runQuery(internal.data.watchlistTickers, {});
+    const crypto = all.filter((w) => w.assetType === "crypto" && w.cryptoAsset && !w.muted);
+
+    const out: any[] = [];
+    for (const w of crypto) {
       try {
-        out.push(await refresh(ctx, ticker, asset));
+        out.push(await refresh(ctx, w.ticker, w.cryptoAsset as string));
       } catch (e) {
-        out.push({ ok: false, ticker, reason: String(e).slice(0, 120) });
+        out.push({ ok: false, ticker: w.ticker, reason: String(e).slice(0, 120) });
       }
     }
     return out;

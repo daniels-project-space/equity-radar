@@ -14,7 +14,9 @@ import { query, internalMutation, internalQuery } from "./_generated/server";
 export const peerGaps = internalQuery({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit = 6 }) => {
-    const watch = await ctx.db.query("watchlist").collect();
+    const watch = (await ctx.db.query("watchlist").collect()).filter(
+      (w) => w.assetType !== "crypto"
+    ); // Peer discovery searches SEC industry codes, which crypto has none of.
     const gaps: { ticker: string; sicCode: string; peers: number }[] = [];
 
     for (const w of watch) {
@@ -97,7 +99,9 @@ export const candidates = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit = 20 }) => {
     const rows = await ctx.db.query("discovered").collect();
-    const watch = await ctx.db.query("watchlist").collect();
+    const watch = (await ctx.db.query("watchlist").collect()).filter(
+      (w) => w.assetType !== "crypto"
+    ); // Peer discovery searches SEC industry codes, which crypto has none of.
     const watched = new Set(watch.map((w) => w.ticker));
 
     const out = [];

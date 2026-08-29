@@ -133,6 +133,25 @@ export const priceSeries = query({
   },
 });
 
+/**
+ * Crypto assets this app can actually source data for.
+ *
+ * Deliberately a fixed list rather than a free-text field. A typo that silently
+ * created a crypto row would send the asset down a pipeline that never fetches
+ * anything, leaving a permanently empty page; and the ticker has to be one the
+ * price source recognises, which is not something a user should have to know.
+ */
+const CRYPTO: Record<string, { asset: string; name: string }> = {
+  BTC: { asset: "btc", name: "Bitcoin" },
+  ETH: { asset: "eth", name: "Ethereum" },
+  SOL: { asset: "sol", name: "Solana" },
+  ADA: { asset: "ada", name: "Cardano" },
+  AVAX: { asset: "avax", name: "Avalanche" },
+  DOT: { asset: "dot", name: "Polkadot" },
+  LTC: { asset: "ltc", name: "Litecoin" },
+  LINK: { asset: "link", name: "Chainlink" },
+};
+
 export const add = mutation({
   args: { ticker: v.string(), reason: v.optional(v.string()) },
   handler: async (ctx, { ticker, reason }) => {
@@ -142,6 +161,25 @@ export const add = mutation({
       .withIndex("by_ticker", (i) => i.eq("ticker", t))
       .unique();
     if (existing) return { id: existing._id, created: false };
+
+    // Crypto is checked first and never looked up in the SEC universe. Some
+    // crypto symbols also exist as stock tickers — Yahoo quotes "BTC" as a
+    // Grayscale trust at $34 while Bitcoin trades near $78,000 — so resolving
+    // one as the other is silent, plausible-looking corruption.
+    const c = CRYPTO[t];
+    if (c) {
+      const id = await ctx.db.insert("watchlist", {
+        ticker: t,
+        cik: "",
+        name: c.name,
+        assetType: "crypto",
+        cryptoAsset: c.asset,
+        addedAt: Date.now(),
+        addedReason: reason,
+        muted: false,
+      });
+      return { id, created: true, assetType: "crypto", cryptoAsset: c.asset };
+    }
 
     const u = await ctx.db
       .query("universe")
@@ -153,11 +191,12 @@ export const add = mutation({
       ticker: t,
       cik: u.cik,
       name: u.name,
+      assetType: "equity",
       addedAt: Date.now(),
       addedReason: reason,
       muted: false,
     });
-    return { id, created: true, cik: u.cik };
+    return { id, created: true, cik: u.cik, assetType: "equity" };
   },
 });
 

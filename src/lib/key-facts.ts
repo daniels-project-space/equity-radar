@@ -45,6 +45,7 @@ type Input = {
     dispersion?: number;
     anchorLabel?: string;
     archetype?: string;
+    marginOfSafety?: number;
   };
   metrics?: {
     moatScore?: number;
@@ -87,13 +88,29 @@ export function keyFacts(d: Input): Fact[] {
   if (price && b?.fairValue) {
     const up = b.upside ?? (b.fairValue / price - 1) * 100;
     const cheap = up > 0;
+    const band = b.currentBand?.toLowerCase();
+
+    // A double-digit gap sitting inside the "around fair value" zone looks like
+    // a contradiction unless the width is explained. It is not one: the zone
+    // scales with how uncertain the estimate is, so a stale or disputed
+    // valuation gets a band wide enough to swallow a 16% gap. Saying so turns
+    // an apparent error into the actual information.
+    const wideBand =
+      band === "around fair value" &&
+      Math.abs(up) >= 10 &&
+      (b.marginOfSafety ?? 0) > 0;
+
     out.push({
       tone: up > 15 ? "good" : up > -15 ? "neutral" : "bad",
       weight: 100,
       text:
         `At ${money(price)} it trades ${Math.abs(up).toFixed(0)}% ${cheap ? "below" : "above"} ` +
         `a fair value of ${money(b.fairValue)}` +
-        (b.currentBand ? `, which puts it in the ${b.currentBand.toLowerCase()} band.` : "."),
+        (wideBand
+          ? `, still inside the fair-value zone because that estimate carries a ${Math.round((b.marginOfSafety ?? 0) * 100)}% margin of safety.`
+          : band
+            ? `, which puts it in the ${band} band.`
+            : "."),
     });
   }
 

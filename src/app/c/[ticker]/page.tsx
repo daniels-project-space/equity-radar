@@ -54,9 +54,12 @@ export default function CompanyPage() {
   const add = useMutation(api.watchlist.add);
   const remove = useMutation(api.watchlist.remove);
   const [busy, setBusy] = useState(false);
-  // Polls while the tab is visible during US hours; falls back to the stored
-  // price the moment it is not available.
-  const live = useLiveQuote(ticker);
+  const isCrypto = data?.metrics?.assetType === "crypto";
+  // Only for equities. The quote route resolves symbols on a stock exchange,
+  // where several crypto tickers also exist as unrelated listings — "BTC" is a
+  // Grayscale trust quoted near $34 while Bitcoin trades near $78,000. Polling
+  // it for a crypto asset would overwrite the price with a different security.
+  const live = useLiveQuote(isCrypto ? undefined : ticker);
 
   if (data === undefined) return <p className="text-[12px] text-[var(--muted)]">Loading…</p>;
   if (data === null) return <p className="text-[12px] text-[var(--muted)]">{ticker} not found.</p>;
@@ -82,7 +85,11 @@ export default function CompanyPage() {
   const sig = signalLabel(s?.verdict, p?.dipState, p?.dipScore);
   // Only on the detail view — a tile has room for what a stock is, not for a
   // five-year scenario with a range attached.
-  const outlook = projectReturns({
+  // Not computed for crypto. The projection compounds a fair value at the growth
+  // a business has earned; realized price is a cost basis, not a fair value, and
+  // there are no earnings to grow. Compounding it at a default rate would be a
+  // forecast with nothing behind it.
+  const outlook = isCrypto ? null : projectReturns({
     price: p?.last,
     fairValue: b?.fairValue,
     justifiedGrowth:
@@ -223,11 +230,18 @@ export default function CompanyPage() {
             fairValue={b?.fairValue}
             currentBand={b?.currentBand}
           />
-          {b?.marginOfSafety !== undefined && (
+          {isCrypto ? (
             <p className="mt-1 text-[10px] text-[var(--muted)]">
-              {Math.round(b.marginOfSafety * 100)}% margin of safety — the zones widen automatically
-              when the valuation methods disagree.
+              Zones are this asset&rsquo;s own history of trading above and below the price the
+              network paid — quantiles of that ratio, not a margin of safety around a valuation.
             </p>
+          ) : (
+            b?.marginOfSafety !== undefined && (
+              <p className="mt-1 text-[10px] text-[var(--muted)]">
+                {Math.round(b.marginOfSafety * 100)}% margin of safety — the zones widen
+                automatically when the valuation methods disagree.
+              </p>
+            )
           )}
         </div>
       )}
