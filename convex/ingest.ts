@@ -19,7 +19,7 @@ import { readTrajectory } from "./lib/trajectory";
 import { readQuality } from "./lib/quality";
 import { priceProfile } from "./lib/profile";
 import { measureLinkage } from "./lib/linkage";
-import { buildAnchorHistory } from "./lib/anchorHistory";
+import { buildAnchorHistory, buildRelativeBands } from "./lib/anchorHistory";
 import { buildScenarios } from "./lib/scenarios";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -426,6 +426,8 @@ async function doRefreshTicker(
     ownPeSamples: ownPes.length,
     anchorOverride: bandSettings.mode === "fixed" ? bandSettings.fixedMultiple : undefined,
   });
+  const anchors = buildAnchorHistory(quarters, latestQ?.sharesDiluted, archetype);
+
   const scenarios = buildScenarios({
     price: stats?.last,
     fairValue: valuation?.fairValue,
@@ -470,7 +472,13 @@ async function doRefreshTicker(
       scenarios,
       // The valuation as it stood at each past filing, so the chart can mark
       // zones against what was known then rather than against today's estimate.
-      anchorHistory: buildAnchorHistory(quarters, latestQ?.sharesDiluted),
+      anchorHistory: anchors,
+      // How this name has been priced against its own anchor, so a structural
+      // grower in an expensive market still has a readable zone.
+      relativeBands: buildRelativeBands(
+        anchors,
+        storedBars.map((b) => ({ date: b.date, c: b.c }))
+      ),
       quality: quality ?? undefined,
       realisedVol,
       guidedGrowth,

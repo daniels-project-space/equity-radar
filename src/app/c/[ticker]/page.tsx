@@ -131,6 +131,9 @@ export default function CompanyPage() {
         : m.expectations.justifiedGrowth / 100,
     growthBasis: m?.trajectory?.basis,
     dispersion: b?.dispersion,
+    bullUpside: (m?.scenarios?.scenarios ?? []).find(
+      (x: { key: string }) => x.key === "bull"
+    )?.upside,
   });
 
   async function doRefresh() {
@@ -267,6 +270,7 @@ export default function CompanyPage() {
                 : (m?.anchorHistory as { date: string; value: number }[] | undefined)
             }
             closesOnly={isCrypto}
+            relativeBands={m?.relativeBands?.bands}
           />
         ) : (
           <p className="py-16 text-center text-[12px] text-[var(--muted)]">

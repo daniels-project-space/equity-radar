@@ -255,6 +255,8 @@ export default defineSchema({
     scenarios: v.optional(v.any()),
     /** Causal fair-value series. See lib/anchorHistory.ts. */
     anchorHistory: v.optional(v.any()),
+    /** Zones from this name's own pricing history, not from fair value. */
+    relativeBands: v.optional(v.any()),
     /** "equity" (default) or "crypto" — decides which model applies at all. */
     assetType: v.optional(v.string()),
     /** On-chain cycle position for crypto. See lib/crypto.ts. */

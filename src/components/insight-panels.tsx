@@ -442,6 +442,7 @@ export type ProjectionRow = {
   annualised: number;
   low: number;
   high: number;
+  bull?: number;
 };
 
 /**
@@ -507,12 +508,26 @@ export function ReturnOutlook({
               {r.annualised >= 0 ? "+" : ""}
               {r.annualised}%/yr
             </span>
+            {r.bull !== undefined && (
+              <span
+                className="tabular w-16 shrink-0 text-right text-[10px]"
+                style={{ color: "var(--good)" }}
+                title="If the bull scenario lands instead of the base case"
+              >
+                bull {r.bull >= 0 ? "+" : ""}
+                {r.bull}%
+              </span>
+            )}
           </div>
         ))}
       </div>
 
       <p className="mt-3 border-t border-[var(--line)] pt-2 text-[10px] leading-relaxed text-[var(--muted)]">
-        A scenario, not a forecast. Fair value compounds at the growth the filings support — faded
+        The central path is deliberately conservative: it compounds the growth the filings support,
+        capped at the documented 90th percentile of ten-year growth, which is what stops the model
+        justifying any price. The bull column carries the scenario case beside it, which is where a
+        small company that re-rates quickly actually shows up. A scenario, not a forecast. Fair value
+        compounds at the growth the filings support — faded
         toward a terminal rate, capped by the moat, and net of shares issued — and the gap to fair
         value is assumed to close over about three years. The shaded range is the difference between
         that discount never closing and it closing with growth at the top of its range, which is the

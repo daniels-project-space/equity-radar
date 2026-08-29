@@ -95,7 +95,7 @@ function crossings(
   // the crypto markers point at tops: a company earning a fraction of today's
   // profit was not worth today's valuation then. Both asset types now supply a
   // real series, and where one is missing nothing is drawn.
-  if (!costBasis || costBasis.length < 4) return [];
+  if (!costBasis || costBasis.length < 2) return [];
 
   // Anchors arrive at filing dates, not every session, so each is carried
   // forward until the next one lands — which is how a valuation actually
@@ -168,6 +168,7 @@ export function PriceChart({
   earningsDates,
   costBasis,
   closesOnly,
+  relativeBands,
 }: {
   bars: Bar[];
   bands: Band[];
@@ -177,6 +178,8 @@ export function PriceChart({
   costBasis?: { date: string; value: number }[];
   /** True when open/high/low are copies of the close and candles would be a lie. */
   closesOnly?: boolean;
+  /** Zones from this name's own pricing history, as multiples of the anchor. */
+  relativeBands?: { label: string; action: string; multipleLo: number; multipleHi: number }[];
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -190,6 +193,13 @@ export function PriceChart({
   const [rects, setRects] = useState<{ band: Band; top: number; height: number }[]>([]);
   const [paneHeight, setPaneHeight] = useState(0);
   const [showBands, setShowBands] = useState(true);
+  // Which question the zones answer: what it is worth, or how it has been
+  // priced. A structural grower in an expensive market never enters the first
+  // kind of zone, which leaves a chart with nothing on it — that is a
+  // non-answer, not a judgement. Kept as a switch rather than a merge, because
+  // showing only the relative view would relabel an always-expensive name's
+  // normal price as cheap.
+  const [relative, setRelative] = useState(false);
     // On, by request. The measurement behind the caption still stands — after the
   // look-ahead was removed these crossings returned a median -8.3% over the
   // next 90 days against a +4.2% baseline — but which of two honest defaults to
@@ -296,6 +306,21 @@ export function PriceChart({
     const pane = Math.max(0, el.clientHeight - TIME_AXIS_H);
     setPaneHeight(pane);
 
+    // The relative table is expressed in multiples, so it is priced against the
+    // most recent anchor to become comparable with the fundamental one.
+    const lastAnchor = costBasis?.length ? costBasis[costBasis.length - 1].value : undefined;
+    const active: Band[] =
+      relative && relativeBands?.length && lastAnchor
+        ? relativeBands.map((b) => ({
+            label: b.label,
+            action: b.action,
+            priceLo: b.multipleLo * lastAnchor,
+            priceHi: b.multipleHi * lastAnchor,
+            multipleLo: b.multipleLo,
+            multipleHi: b.multipleHi,
+          }))
+        : bands;
+
     const next: { band: Band; top: number; height: number }[] = [];
 
     // Everything above the table gets its own region rather than being left
@@ -303,7 +328,7 @@ export function PriceChart({
     // a quarter of its history sat over unshaded chart — which read as the
     // model having nothing to say, when what it actually means is that the
     // price spent that time beyond anything the fundamentals support.
-    const tableTop = Math.max(...bands.map((b) => b.priceHi));
+    const tableTop = Math.max(...active.map((b) => b.priceHi));
     const yTop = series.priceToCoordinate(tableTop);
     if (yTop !== null && yTop > 1) {
       next.push({
@@ -320,7 +345,7 @@ export function PriceChart({
       });
     }
 
-    for (const band of bands) {
+    for (const band of active) {
       const yHi = series.priceToCoordinate(band.priceHi);
       const yLo = series.priceToCoordinate(band.priceLo);
       if (yHi === null && yLo === null) continue;
@@ -396,7 +421,7 @@ export function PriceChart({
     chart.timeScale().fitContent();
     requestAnimationFrame(recomputeBands);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bars, rangeIdx, bands, showMarkers, showMa, showEarnings, fairValue, earningsDates]);
+  }, [bars, rangeIdx, bands, showMarkers, showMa, showEarnings, fairValue, earningsDates, relative, relativeBands, costBasis]);
 
   const toggle = (label: string, on: boolean, set: (v: boolean) => void, title?: string) => (
     <label
@@ -430,7 +455,15 @@ export function PriceChart({
           {toggle("Zones", showBands, setShowBands, "Valuation bands around fair value")}
           {toggle("MA 50/200", showMa, setShowMa, "50- and 200-day simple moving averages")}
           {toggle("Earnings", showEarnings, setShowEarnings, "Dates an earnings release was filed")}
-          {toggle(
+          {relativeBands?.length
+          ? toggle(
+              relative ? "Zones: own history" : "Zones: fair value",
+              relative,
+              setRelative,
+              "Switch between what the fundamentals say it is worth and how this name has actually been priced against its own anchor. A grower in an expensive market rarely enters the first kind of zone."
+            )
+          : null}
+        {toggle(
           "Zone crossings",
           showMarkers,
           setShowMarkers,

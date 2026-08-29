@@ -17,6 +17,8 @@
 
 export type Projection = {
   years: number;
+  /** Same horizon under the bull case, when one is available. */
+  bull?: number;
   /** Total return over the period, in %. */
   total: number;
   /** Annualised, in %. */
@@ -60,6 +62,16 @@ export function projectReturns(input: {
   dispersion?: number;
   /** Where the growth number came from, passed through for display. */
   growthBasis?: string;
+  /**
+   * Upside in the bull case, from the scenario set. The projection compounds the
+   * growth the filings support, which is capped at a documented 90th percentile
+   * — deliberately, because that cap is what stopped the model justifying any
+   * price. But quoting only that path understates a small, fast-re-rating
+   * company, whose whole case is the tail. The bull path is carried alongside
+   * rather than lifting the base, so the range widens without the central
+   * estimate drifting into a story.
+   */
+  bullUpside?: number;
 }): Projection[] | null {
   const { price, fairValue } = input;
   if (!price || price <= 0 || !fairValue || fairValue <= 0) return null;
@@ -82,12 +94,20 @@ export function projectReturns(input: {
     const low = at(years, g * 0.6, 0);
     // High: it closes fully and growth holds at the top of its range.
     const high = at(years, g * 1.25, 1) * (1 + spread * 0.15);
+    // The bull case is a scenario about the next year or so, not a rate. It is
+    // spread across the horizon so a five-year line does not simply repeat it.
+    const bull =
+      input.bullUpside === undefined
+        ? undefined
+        : r1((Math.pow(1 + input.bullUpside / 100, Math.min(1, years / 3)) - 1) * 100);
+
     return {
       years,
       total: r1(total * 100),
       annualised: r1((Math.pow(1 + total, 1 / years) - 1) * 100),
       low: r1(low * 100),
       high: r1(high * 100),
+      bull,
     };
   });
 }
