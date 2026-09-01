@@ -119,6 +119,38 @@ export default function CompanyPage() {
   // What the chart itself says, independent of the valuation. For names that
   // have traded far outside their zone table this is the missing half.
   const range = bars?.length ? rangeContext(bars.map((x) => x.c), bandList) : null;
+
+  /**
+   * Zones built from the volume profile - where this actually traded.
+   *
+   * The fundamental table is the honest answer to "what is it worth", and for a
+   * structural grower it can sit so far under the market that its buy zone has
+   * never been touched. A level nobody can reach is not a level. The value area
+   * is reachable by construction because it is made of prices that happened,
+   * so the chart can always offer somewhere to act even when the valuation
+   * cannot. It replaces nothing: fair value and the verdict are untouched.
+   */
+  const prof = p?.profile as
+    | { val?: number; poc?: number; vah?: number; basis?: string }
+    | undefined;
+  const profileBands = useMemo(() => {
+    const val = prof?.val, poc = prof?.poc, vah = prof?.vah;
+    if (!val || !poc || !vah || !(vah > val) || !(poc >= val && poc <= vah)) return undefined;
+    const span = vah - val;
+    const mk = (label: string, action: string, lo: number, hi: number) => ({
+      label, action, priceLo: lo, priceHi: hi,
+      // Multiples are relative to the point of control, which is the one price
+      // in a profile that means something on its own.
+      multipleLo: lo / poc, multipleHi: hi / poc,
+    });
+    return [
+      mk("Below everything it traded", "BUY_AGGRESSIVE", Math.max(0, val - span), val),
+      mk("Lower value area", "BUY", val, poc),
+      mk("Upper value area", "ACCUMULATE", poc, vah),
+      mk("Above the value area", "HOLD", vah, vah + span * 0.5),
+      mk("Far above where it traded", "TRIM", vah + span * 0.5, vah + span * 1.5),
+    ];
+  }, [prof?.val, prof?.poc, prof?.vah]);
   // Only on the detail view — a tile has room for what a stock is, not for a
   // five-year scenario with a range attached.
   // Not computed for crypto. The projection compounds a fair value at the growth
@@ -274,6 +306,12 @@ export default function CompanyPage() {
             }
             closesOnly={isCrypto}
             relativeBands={m?.relativeBands?.bands}
+            profileBands={profileBands}
+            profileNote={
+              prof?.val && prof?.vah && prof?.poc
+                ? `Value area covers the bulk of the last year's traded volume: $${Math.round(prof.val)} to $${Math.round(prof.vah)}, heaviest at $${Math.round(prof.poc)}.`
+                : undefined
+            }
             relativeNote={
               m?.relativeBands
                 ? `Measured over ${Math.max(1, Math.round((m.relativeBands.observations ?? 0) / 252))} years.` +

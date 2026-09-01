@@ -179,6 +179,8 @@ export function PriceChart({
   closesOnly,
   relativeBands,
   relativeNote,
+  profileBands,
+  profileNote,
 }: {
   bars: Bar[];
   bands: Band[];
@@ -192,6 +194,13 @@ export function PriceChart({
   relativeBands?: { label: string; action: string; multipleLo: number; multipleHi: number }[];
   /** How deep that sample is, and whether it had to start late. */
   relativeNote?: string;
+  /**
+   * Zones from the volume profile - where this actually traded over the last
+   * year. Already in prices, because a value area is a price fact rather than a
+   * multiple of anything.
+   */
+  profileBands?: Band[];
+  profileNote?: string;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -211,7 +220,35 @@ export function PriceChart({
   // non-answer, not a judgement. Kept as a switch rather than a merge, because
   // showing only the relative view would relabel an always-expensive name's
   // normal price as cheap.
-  const [relative, setRelative] = useState(false);
+  const [basis, setBasis] = useState<"fair" | "own" | "area">("fair");
+  const relative = basis === "own";
+  const [userPicked, setUserPicked] = useState(false);
+
+  /**
+   * A zone nobody can reach is not a zone.
+   *
+   * For a structural grower the fundamental buy band sits so far below the
+   * market that it has never once been touched and plausibly never will be, so
+   * the chart offers a level that is correct and useless at the same time. Where
+   * that happens the default basis becomes the value area - where this actually
+   * traded over the last year - because those levels are reachable by
+   * construction. Nothing about the valuation changes: the fair value line and
+   * the verdict still say what they said. The chart just stops answering a
+   * question the price cannot get near, and answers one it can.
+   *
+   * Only the default moves. The moment the basis is chosen by hand that choice
+   * sticks, including choosing to go back.
+   */
+  useEffect(() => {
+    if (userPicked || !profileBands?.length || !bands.length || !bars.length) return;
+    const price = bars[bars.length - 1]?.c;
+    if (!price) return;
+    const top = Math.max(...bands.map((b) => b.priceHi));
+    const bottomBuy = bands.find((b) => b.action === "BUY" || b.action === "BUY_AGGRESSIVE");
+    const unreachable =
+      price > top || (bottomBuy !== undefined && price > bottomBuy.priceHi * 2.5);
+    if (unreachable) setBasis("area");
+  }, [userPicked, profileBands, bands, bars]);
     // On, by request. The measurement behind the caption still stands — after the
   // look-ahead was removed these crossings returned a median -8.3% over the
   // next 90 days against a +4.2% baseline — but which of two honest defaults to
@@ -322,7 +359,9 @@ export function PriceChart({
     // most recent anchor to become comparable with the fundamental one.
     const lastAnchor = costBasis?.length ? costBasis[costBasis.length - 1].value : undefined;
     const active: Band[] =
-      relative && relativeBands?.length && lastAnchor
+      basis === "area" && profileBands?.length
+        ? profileBands
+        : relative && relativeBands?.length && lastAnchor
         ? relativeBands.map((b) => ({
             label: b.label,
             action: b.action,
@@ -467,15 +506,29 @@ export function PriceChart({
           {toggle("Zones", showBands, setShowBands, "Valuation bands around fair value")}
           {toggle("MA 50/200", showMa, setShowMa, "50- and 200-day simple moving averages")}
           {toggle("Earnings", showEarnings, setShowEarnings, "Dates an earnings release was filed")}
-          {relativeBands?.length
-          ? toggle(
-              relative ? "Zones: own history" : "Zones: fair value",
-              relative,
-              setRelative,
-              "Switch between what the fundamentals say it is worth and how this name has actually been priced against its own anchor. A grower in an expensive market rarely enters the first kind of zone." +
-                (relativeNote ? ` ${relativeNote}` : "")
-            )
-          : null}
+          <span className="flex items-center gap-1" title={
+            "What the shaded zones are measured against. Fair value is what the fundamentals say it is worth - correct, and for a structural grower often unreachable. Own history is how this name has actually been priced against its own anchor. Value area is where it actually traded over the last year, which is the only one of the three guaranteed to contain levels the price can reach." +
+            (relativeNote ? ` ${relativeNote}` : "") + (profileNote ? ` ${profileNote}` : "")
+          }>
+            <span className="text-[11px] text-[var(--muted)]">Zones:</span>
+            {([
+              ["fair", "fair value"],
+              ...(relativeBands?.length ? [["own", "own history"] as const] : []),
+              ...(profileBands?.length ? [["area", "value area"] as const] : []),
+            ] as const).map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => { setUserPicked(true); setBasis(k as "fair" | "own" | "area"); }}
+                className={`rounded-md px-1.5 py-0.5 text-[11px] transition ${
+                  basis === k
+                    ? "bg-[var(--panel-2)] text-[var(--text)]"
+                    : "text-[var(--muted)] hover:text-[var(--text)]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </span>
         {toggle(
           "Zone crossings",
           showMarkers,
