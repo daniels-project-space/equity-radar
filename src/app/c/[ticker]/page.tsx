@@ -133,7 +133,11 @@ export default function CompanyPage() {
   const prof = p?.profile as
     | { val?: number; poc?: number; vah?: number; basis?: string }
     | undefined;
-  const profileBands = useMemo(() => {
+  // Deliberately not a useMemo: this sits below the early returns for the
+  // loading and not-found states, and a hook after a conditional return changes
+  // the hook count between renders. It is five objects; memoising it bought
+  // nothing and cost every detail page.
+  const profileBands = (() => {
     const val = prof?.val, poc = prof?.poc, vah = prof?.vah;
     if (!val || !poc || !vah || !(vah > val) || !(poc >= val && poc <= vah)) return undefined;
     const span = vah - val;
@@ -150,7 +154,7 @@ export default function CompanyPage() {
       mk("Above the value area", "HOLD", vah, vah + span * 0.5),
       mk("Far above where it traded", "TRIM", vah + span * 0.5, vah + span * 1.5),
     ];
-  }, [prof?.val, prof?.poc, prof?.vah]);
+  })();
   // Only on the detail view — a tile has room for what a stock is, not for a
   // five-year scenario with a range attached.
   // Not computed for crypto. The projection compounds a fair value at the growth
