@@ -85,6 +85,9 @@ export const listCompact = query({
                     blended: m.buyLevels.blended,
                     discountToPrice: m.buyLevels.discountToPrice,
                     relativeWeight: m.buyLevels.relativeWeight,
+                    // Only the first rung; the tile shows the reachable one and
+                    // the company page has the rest.
+                    ladder: (m.buyLevels.ladder ?? []).slice(0, 1),
                   }
                 : undefined,
               // Only the three fields keyFacts reads, not the whole object.

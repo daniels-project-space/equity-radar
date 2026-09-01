@@ -29,7 +29,12 @@ type Card = {
     latestPeriodEnd?: string;
     assetType?: string;
     cycle?: { zone?: string; tsmsv?: number; hasOnChain?: boolean };
-    buyLevels?: { blended?: number; discountToPrice?: number; relativeWeight?: number };
+    buyLevels?: {
+      blended?: number;
+      discountToPrice?: number;
+      relativeWeight?: number;
+      ladder?: { label: string; price: number; depth: number }[];
+    };
   } | null;
   score?: { asymmetry?: number; verdict?: string } | null;
   bands?: {
@@ -178,16 +183,20 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
           <span className="text-[var(--muted)]">Buy at</span>
           <span className="flex items-baseline gap-1.5">
             <span className="tabular font-medium" style={{ color: "var(--good)" }}>
-              {usd(row.metrics.buyLevels.blended)}
+              {usd(row.metrics.buyLevels.ladder?.[0]?.price ?? row.metrics.buyLevels.blended)}
             </span>
-            {row.metrics.buyLevels.discountToPrice !== undefined && (
-              <span
-                className="tabular text-[var(--muted)]"
-                title="How far below today's price the blended buy level sits. It mixes discounted cash flows with what the market has historically paid for this company's sales."
-              >
-                {row.metrics.buyLevels.discountToPrice >= -1 ? "at or below now" : `${Math.abs(Math.round(row.metrics.buyLevels.discountToPrice))}% away`}
-              </span>
-            )}
+            <span
+              className="tabular text-[var(--muted)]"
+              title="The first rung of the scale-in ladder — a pullback this name has made several times a year. The deeper rungs, where the valuation work lands, are on the company page."
+            >
+              {(() => {
+                const d =
+                  row.metrics.buyLevels.ladder?.[0]?.depth ??
+                  row.metrics.buyLevels.discountToPrice;
+                if (d === undefined) return "";
+                return d >= -1 ? "at or below now" : `${Math.abs(Math.round(d))}% away`;
+              })()}
+            </span>
           </span>
         </div>
       )}

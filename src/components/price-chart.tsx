@@ -182,6 +182,7 @@ export function PriceChart({
   profileBands,
   profileNote,
   buyLevel,
+  buyLadder,
 }: {
   bars: Bar[];
   bands: Band[];
@@ -204,6 +205,8 @@ export function PriceChart({
   profileNote?: string;
   /** Blended buy level - intrinsic and own-record mixed. See lib/buyLevels.ts. */
   buyLevel?: number;
+  /** Scale-in rungs. Drawn instead of the single level when present. */
+  buyLadder?: { label: string; price: number }[];
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -212,7 +215,7 @@ export function PriceChart({
   const sma50Ref = useRef<ISeriesApi<"Line"> | null>(null);
   const sma200Ref = useRef<ISeriesApi<"Line"> | null>(null);
   const fvLineRef = useRef<IPriceLine | null>(null);
-  const buyLineRef = useRef<IPriceLine | null>(null);
+  const buyLinesRef = useRef<IPriceLine[]>([]);
 
   const [rangeIdx, setRangeIdx] = useState(1);
   const [rects, setRects] = useState<{ band: Band; top: number; height: number }[]>([]);
@@ -482,27 +485,35 @@ export function PriceChart({
       });
     }
 
-    // The level to act on, as opposed to the level it is worth. These are
-    // different numbers and the chart says so rather than picking one.
-    if (buyLineRef.current) {
-      series.removePriceLine(buyLineRef.current);
-      buyLineRef.current = null;
-    }
-    if (buyLevel && buyLevel > 0) {
-      buyLineRef.current = series.createPriceLine({
-        price: buyLevel,
-        color: "#22c55e",
-        lineWidth: 1,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: "buy",
-      });
+    // Where to act, as a ladder rather than a single gate. Buying only at a
+    // deep level is the documented losing version of this - see lib/buyLevels.ts
+    // - so the shallow rungs are the point and they are drawn first.
+    for (const l of buyLinesRef.current) series.removePriceLine(l);
+    buyLinesRef.current = [];
+    const rungs =
+      buyLadder && buyLadder.length
+        ? buyLadder
+        : buyLevel && buyLevel > 0
+          ? [{ label: "buy", price: buyLevel }]
+          : [];
+    for (const r of rungs) {
+      if (!(r.price > 0)) continue;
+      buyLinesRef.current.push(
+        series.createPriceLine({
+          price: r.price,
+          color: "#22c55e",
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: r.label.toLowerCase(),
+        })
+      );
     }
 
     chart.timeScale().fitContent();
     requestAnimationFrame(recomputeBands);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bars, rangeIdx, bands, showMarkers, showMa, showEarnings, fairValue, earningsDates, relative, relativeBands, costBasis, basis, profileBands, buyLevel]);
+  }, [bars, rangeIdx, bands, showMarkers, showMa, showEarnings, fairValue, earningsDates, relative, relativeBands, costBasis, basis, profileBands, buyLevel, buyLadder]);
 
   const toggle = (label: string, on: boolean, set: (v: boolean) => void, title?: string) => (
     <label

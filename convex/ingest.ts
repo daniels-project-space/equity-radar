@@ -82,6 +82,41 @@ export const refreshUniverseCron = internalAction({
 /* Per-ticker refresh: prices -> fundamentals -> metrics -> score      */
 /* ------------------------------------------------------------------ */
 
+
+/**
+ * How far this name usually falls from a running high before making a new one.
+ *
+ * The ladder rungs are built from this rather than from a fixed percentage,
+ * because a 10% fall is an ordinary week for one name and a crisis for another:
+ * Cisco's median pullback is 8% and its three-quarter depth is 10%, while
+ * Uber's are 11% and 28%. A rung set from the asset's own behaviour is reachable
+ * by construction; one set from a round number is reachable by luck.
+ */
+function measurePullbacks(
+  closes: number[]
+): { median: number; p75: number; p90: number; count: number } | undefined {
+  if (closes.length < 400) return undefined;
+  let peak = closes[0];
+  let cur = 0;
+  const troughs: number[] = [];
+  for (const px of closes) {
+    if (!(px > 0)) continue;
+    if (px > peak) {
+      // Only completed falls count; a 1% wiggle is not a pullback.
+      if (cur > 0.03) troughs.push(cur);
+      peak = px;
+      cur = 0;
+    } else {
+      cur = Math.max(cur, (peak - px) / peak);
+    }
+  }
+  if (cur > 0.03) troughs.push(cur);
+  if (troughs.length < 8) return undefined;
+  const a = troughs.sort((x, y) => x - y);
+  const q = (p: number) => a[Math.min(a.length - 1, Math.floor(a.length * p))];
+  return { median: q(0.5), p75: q(0.75), p90: q(0.9), count: a.length };
+}
+
 async function doRefreshTicker(
   ctx: ActionCtx,
   { ticker, cik, skipPrices }: { ticker: string; cik: string; skipPrices?: boolean }
@@ -535,6 +570,7 @@ async function doRefreshTicker(
     ownEvSalesSamples: ownEvSales.length,
     ownEvSalesCv,
     revenueGrowth: trajectory?.growth ?? metrics.revYoY,
+    pullbacks: measurePullbacks(storedBars.map((b) => b.c)),
   });
 
   if (valuation) await ctx.runMutation(internal.data.storeBands, { ticker: t, bands: valuation });

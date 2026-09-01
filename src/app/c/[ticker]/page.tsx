@@ -163,6 +163,14 @@ export default function CompanyPage() {
   // forecast with nothing behind it.
   const lv = m?.buyLevels as
     | {
+        ladder?: {
+          label: string;
+          price: number;
+          depth: number;
+          size: number;
+          frequency: string;
+          why: string;
+        }[];
         intrinsic?: number;
         relative?: number;
         relativeDiscarded?: boolean;
@@ -323,6 +331,7 @@ export default function CompanyPage() {
             closesOnly={isCrypto}
             relativeBands={m?.relativeBands?.bands}
             buyLevel={m?.buyLevels?.blended}
+            buyLadder={m?.buyLevels?.ladder}
             profileBands={profileBands}
             profileNote={
               prof?.val && prof?.vah && prof?.poc
@@ -396,13 +405,48 @@ export default function CompanyPage() {
                 Where to buy
               </h3>
               <p className="mt-2 flex flex-wrap items-baseline gap-x-2 text-[20px] font-semibold tabular" style={{ color: "var(--good)" }}>
-                <span>{usd(lv.blended)}</span>
-                {lv.discountToPrice !== undefined && (
-                  <span className="text-[13px] font-normal text-[var(--muted)]">
-                    {Math.abs(lv.discountToPrice)}% below today
-                  </span>
-                )}
+                <span>{usd(lv.ladder?.length ? lv.ladder[0].price : lv.blended)}</span>
+                <span className="text-[13px] font-normal text-[var(--muted)]">
+                  {lv.ladder?.length
+                    ? `${Math.abs(lv.ladder[0].depth)}% below today — first rung`
+                    : lv.discountToPrice !== undefined
+                      ? `${Math.abs(lv.discountToPrice)}% below today`
+                      : ""}
+                </span>
               </p>
+              {lv.ladder?.length ? (
+                <div className="mt-3 space-y-2">
+                  {lv.ladder.map((r) => (
+                    <div key={r.label} className="text-[12px]" title={r.why}>
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-[var(--text)]">{r.label}</span>
+                        <span className="tabular">
+                          {usd(r.price)}{" "}
+                          <span className="text-[var(--muted)]">{r.depth}%</span>
+                        </span>
+                      </div>
+                      <div className="mt-1 flex items-center gap-2">
+                        <div className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--panel-2)]">
+                          <div
+                            className="h-full rounded-full bg-[var(--good)]"
+                            style={{ width: `${Math.round(r.size * 100)}%` }}
+                          />
+                        </div>
+                        <span className="w-8 shrink-0 text-right text-[10px] text-[var(--muted)]">
+                          {Math.round(r.size * 100)}%
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-[10px] text-[var(--muted)]">{r.frequency}</p>
+                    </div>
+                  ))}
+                  <p className="pt-1 text-[11px] leading-relaxed text-[var(--muted)]">
+                    A ladder rather than a gate. AQR tested ~196 buy-the-dip rules and found an
+                    average Sharpe 0.04 <em>below</em> simply holding, and 18.7% lower ending wealth
+                    than steady contributions — waiting in cash for a deep level is the losing
+                    version of this, so the first rung is one this name reaches several times a year.
+                  </p>
+                </div>
+              ) : null}
               <div className="mt-3 grid grid-cols-2 gap-3 text-[12px]">
                 <div>
                   <div className="text-[var(--muted)]">On cash flows</div>

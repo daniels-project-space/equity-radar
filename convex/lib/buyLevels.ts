@@ -30,7 +30,21 @@
  * hiding the only real finding.
  */
 
+export type Rung = {
+  label: string;
+  price: number;
+  /** How far below today, in %. */
+  depth: number;
+  /** Share of the intended position to put in here, 0-1. */
+  size: number;
+  /** How often a fall this deep has happened, in this name's own history. */
+  frequency: string;
+  why: string;
+};
+
 export type BuyLevels = {
+  /** Scale-in ladder, shallowest first. The actionable output. */
+  ladder?: Rung[];
   /** Fair value less the margin of safety. Absolute, often unreachable. */
   intrinsic?: number;
   /** The cheap end of what the market has paid for its sales. Always reachable.
@@ -65,6 +79,8 @@ export function buyLevels(input: {
   /** Delivered revenue growth, as a fraction. The relative level is priced on
    *  the revenue this will have, not the revenue it had. */
   revenueGrowth?: number;
+  /** This name's own measured pullback depths, as fractions. */
+  pullbacks?: { median: number; p75: number; p90: number; count: number };
 }): BuyLevels | null {
   const { price, fairValue, revenueTtm, shares } = input;
   if (!price || price <= 0) return null;
@@ -150,7 +166,84 @@ export function buyLevels(input: {
           `so $${blended} is a level worth trusting, ${Math.abs(discountToPrice ?? 0)}% below today.`;
   }
 
+  /**
+   * A ladder, not a gate.
+   *
+   * The single level this used to report sat 50-75% below the market for most
+   * names, which is not a buy level, it is the maximum drawdown of the last
+   * decade. AQR tested roughly 196 buy-the-dip rule sets and found an average
+   * Sharpe 0.04 BELOW simply holding equities, 8% of them significant, and 18.7%
+   * lower ending wealth than dollar-cost averaging - and Maggiulli's version of
+   * the same question found that missing the bottom by two months drops the
+   * chance of beating a steady contribution plan from 30% to 3%. Waiting in cash
+   * for a deep level is the documented losing strategy, not the careful one.
+   *
+   * So the output is a scale-in ladder anchored on what this name actually does.
+   * The rungs are its own measured pullback depths: the median fall from a
+   * running high happens several times a year and takes a small size, the
+   * three-quarter depth takes more, and the deep rung - where an ordinary
+   * pullback coincides with the value level - takes the most. The point is that
+   * the first rung is reachable by construction, so the answer is "you are
+   * invested and here is where you add", rather than "wait", which is the
+   * answer the evidence says loses.
+   */
+  let ladder: Rung[] | undefined;
+  const pb = input.pullbacks;
+  if (pb && pb.median > 0 && price > 0) {
+    const mk = (
+      label: string,
+      depthFrac: number,
+      size: number,
+      frequency: string,
+      why: string
+    ): Rung => ({
+      label,
+      price: r2(price * (1 - depthFrac)),
+      depth: r2(-depthFrac * 100),
+      size,
+      frequency,
+      why,
+    });
+
+    const rungs: Rung[] = [
+      mk(
+        "Start",
+        pb.median,
+        0.3,
+        `${pb.count} falls this deep or worse in its history`,
+        `A ${Math.round(pb.median * 100)}% pullback is this name's median - the ordinary kind, several a year.`
+      ),
+      mk(
+        "Add",
+        pb.p75,
+        0.3,
+        "roughly the worst quarter of its pullbacks",
+        `${Math.round(pb.p75 * 100)}% down is a real correction for this one, not a wobble.`
+      ),
+    ];
+
+    // The deep rung is the value level when that is genuinely deeper than an
+    // ordinary crash, and the name's own extreme when the value level is close.
+    // Never above the rung before it, which would make the ladder go backwards.
+    const deepByPrice = price * (1 - pb.p90);
+    const deepTarget = blended !== undefined ? Math.min(blended, deepByPrice) : deepByPrice;
+    const deep = Math.min(deepTarget, rungs[1].price * 0.98);
+    rungs.push({
+      label: "Back up the truck",
+      price: r2(deep),
+      depth: r2((deep / price - 1) * 100),
+      size: 0.4,
+      frequency: "rare - a handful of times in a decade",
+      why:
+        blended !== undefined && blended <= deepByPrice
+          ? `Where the valuation work lands. Reaching it needs more than a normal drawdown, which is why it carries size rather than urgency.`
+          : `This name's deepest quartile of falls. The valuation level sits above it, so the constraint here is the drawdown, not the price.`,
+    });
+    ladder = rungs;
+  }
+
   return {
+    ladder,
     intrinsic,
     relative: relativeUsable,
     relativeDiscarded,
