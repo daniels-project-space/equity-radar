@@ -45,22 +45,93 @@ export type Expectations = {
 const TERMINAL_GROWTH = 0.025;
 
 /**
- * Present value with growth fading linearly from `g0` to the terminal rate.
+ * Present value with growth fading linearly from `g0` to the terminal rate, and
+ * margin converging toward what the business matures into.
  *
- * No business sustains its current growth for a decade and then stops dead;
- * the fade is what keeps a hot trailing quarter from implying any price.
+ * No business sustains its current growth for a decade and then stops dead; the
+ * fade is what keeps a hot trailing quarter from implying any price.
+ *
+ * MARGIN CONVERGENCE. Holding today's cash margin flat for the whole horizon
+ * quietly punishes every company that is spending to grow, and it punished them
+ * hardest exactly where it mattered. Cloudflare converts 13.9% of revenue to
+ * free cash flow, not because that is what the business earns but because it is
+ * reinvesting into 36% growth on a 73% gross margin. Freezing 13.9% for seven
+ * years values a company that has chosen to look unprofitable as though it were
+ * unable to be profitable, and four names on this watchlist - Cloudflare,
+ * CrowdStrike, Marvell, Applied Optoelectronics - traded clean off the top of
+ * their own band table as a result. That is not the market being wrong four
+ * times; that is a model that cannot represent a reinvesting business.
+ *
+ * So revenue grows at the fading rate while the margin walks from today's level
+ * toward a mature target over the same horizon. This is ordinary practice for
+ * growth-company valuation rather than an indulgence - it is how a target-margin
+ * DCF has always been built - and the guardrails matter more than the idea:
+ * convergence is upward only, the target is capped by the gross margin the
+ * company actually earns (you cannot turn more into cash than you make), and it
+ * is only extended to businesses growing fast enough for reinvestment to be the
+ * plausible explanation. A shrinking company with thin margins is not
+ * reinvesting, it is losing, and it keeps the margin it has.
  */
-function pvFading(fcf0: number, g0: number, years: number, wacc: number, tg: number): number {
+function pvFading(
+  fcf0: number,
+  g0: number,
+  years: number,
+  wacc: number,
+  tg: number,
+  /** Today's FCF margin and the level it should mature toward, as fractions. */
+  margin?: { now: number; mature: number }
+): number {
   let total = 0;
   let cf = fcf0;
+  // Only ever a lift, never a haircut: this exists to stop understating a
+  // reinvestor, not to talk up a company whose margins are already fat.
+  const converge =
+    margin && margin.now > 0 && margin.mature > margin.now ? margin : undefined;
+
   for (let t = 1; t <= years; t++) {
     const g = g0 + (tg - g0) * (t / years);
     cf = cf * (1 + g);
-    total += cf / Math.pow(1 + wacc, t);
+    // cf has grown with revenue; scale it by how far the margin has travelled.
+    const lift = converge
+      ? (converge.now + (converge.mature - converge.now) * (t / years)) / converge.now
+      : 1;
+    total += (cf * lift) / Math.pow(1 + wacc, t);
   }
-  // By the terminal year competition is assumed to have eroded excess returns.
-  const terminal = (cf * (1 + tg)) / (wacc - tg);
+  // By the terminal year competition is assumed to have eroded excess returns,
+  // and the margin has finished converging, so the terminal cash flow carries
+  // the full lift rather than today's suppressed rate.
+  const endLift = converge ? converge.mature / converge.now : 1;
+  const terminal = (cf * endLift * (1 + tg)) / (wacc - tg);
   return total + terminal / Math.pow(1 + wacc, years);
+}
+
+/**
+ * What share of revenue this business should convert to cash once it stops
+ * buying growth.
+ *
+ * Anchored on gross margin, because that is the ceiling: cash cannot exceed what
+ * survives cost of revenue. The fraction of gross profit that reaches free cash
+ * flow at maturity is the one judgement here, set at 0.35 - roughly where large,
+ * settled software and hardware businesses land once growth spending normalises.
+ *
+ * Returns undefined when reinvestment is not a credible story: a company growing
+ * slowly has no growth to be spending on, so a thin margin is simply a thin
+ * margin.
+ */
+export function matureFcfMargin(input: {
+  grossMargin?: number;
+  fcfMargin?: number;
+  growth?: number;
+}): number | undefined {
+  const { grossMargin, fcfMargin, growth } = input;
+  if (grossMargin === undefined || grossMargin <= 0 || grossMargin > 0.95) return undefined;
+  if (fcfMargin === undefined || fcfMargin <= 0) return undefined;
+  // Below this the low margin is not explained by growth spending.
+  if ((growth ?? 0) < 0.12) return undefined;
+  const target = grossMargin * 0.35;
+  // Never below where it already is, and never a claim that it out-earns its
+  // own gross profit.
+  return target > fcfMargin ? Math.min(target, grossMargin * 0.6) : undefined;
 }
 
 /**
@@ -75,18 +146,22 @@ function solveInitialGrowth(
   fcf0: number,
   years: number,
   wacc: number,
-  tg: number
+  tg: number,
+  /** Must match the assumption the forward valuation uses, or the implied
+   *  growth reported back is answering a different question from the one the
+   *  fair value was built on. */
+  margin?: { now: number; mature: number }
 ): number | null {
   if (fcf0 <= 0 || ev <= 0) return null;
   const lo0 = -0.6;
   const hi0 = 2.5;
-  if (pvFading(fcf0, lo0, years, wacc, tg) > ev) return null; // cheaper than any scenario
-  if (pvFading(fcf0, hi0, years, wacc, tg) < ev) return null; // beyond what this can express
+  if (pvFading(fcf0, lo0, years, wacc, tg, margin) > ev) return null; // cheaper than any scenario
+  if (pvFading(fcf0, hi0, years, wacc, tg, margin) < ev) return null; // beyond what this expresses
   let lo = lo0;
   let hi = hi0;
   for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;
-    if (pvFading(fcf0, mid, years, wacc, tg) < ev) lo = mid;
+    if (pvFading(fcf0, mid, years, wacc, tg, margin) < ev) lo = mid;
     else hi = mid;
   }
   return (lo + hi) / 2;
@@ -194,6 +269,32 @@ export function justifiedGrowthRate(input: {
  * melting ice cube be told apart — the multiple looks the same, the growth
  * behind it does not.
  */
+/**
+ * Turns raw inputs into the convergence pair pvFading wants, or undefined when
+ * reinvestment is not a credible explanation for the current margin. Used by
+ * both the forward valuation and the implied-growth solve so the two can never
+ * drift onto different assumptions.
+ */
+function marginConvergence(input: {
+  fcfTtm?: number;
+  revenueTtm?: number;
+  grossMargin?: number;
+  trajectoryGrowth?: number;
+  revYoY?: number;
+}): { now: number; mature: number } | undefined {
+  const { fcfTtm, revenueTtm, grossMargin } = input;
+  if (!fcfTtm || !revenueTtm || revenueTtm <= 0) return undefined;
+  const now = fcfTtm / revenueTtm;
+  // Deliberately the growth the company is DELIVERING, not the moat-capped rate
+  // the model is willing to underwrite. Cloudflare grows revenue at 31% and is
+  // justified at 10%; asking "is a low margin explained by reinvestment?" with
+  // the 10% answers a different question and silently switched the convergence
+  // off for the exact name it was built for.
+  const observed = input.trajectoryGrowth ?? input.revYoY;
+  const mature = matureFcfMargin({ grossMargin, fcfMargin: now, growth: observed });
+  return mature === undefined ? undefined : { now, mature };
+}
+
 export function justifiedValue(input: {
   fcfTtm?: number;
   netCash?: number;
@@ -205,6 +306,9 @@ export function justifiedValue(input: {
   netDebtToEbitda?: number;
   trajectoryGrowth?: number;
   trajectoryConfidence?: number;
+  /** For margin convergence. Fractions, as everywhere else in the pipeline. */
+  revenueTtm?: number;
+  grossMargin?: number;
 }): { perShare: number; growth: number; horizon: number; wacc: number } | null {
   const { fcfTtm, shares } = input;
   if (!fcfTtm || fcfTtm <= 0 || !shares || shares <= 0) return null;
@@ -214,7 +318,8 @@ export function justifiedValue(input: {
 
   const horizon = horizonFor(input.moatScore);
   const wacc = discountFor(input.moatScore, input.netDebtToEbitda);
-  const ev = pvFading(fcfTtm, g, horizon, wacc, TERMINAL_GROWTH);
+  const margin = marginConvergence(input);
+  const ev = pvFading(fcfTtm, g, horizon, wacc, TERMINAL_GROWTH, margin);
   const perShare = (ev + (input.netCash ?? 0)) / shares;
   if (!Number.isFinite(perShare) || perShare <= 0) return null;
 
@@ -233,6 +338,9 @@ export function readExpectations(input: {
   netDebtToEbitda?: number;
   trajectoryGrowth?: number;
   trajectoryConfidence?: number;
+  /** For margin convergence, so implied growth is solved on the same
+   *  assumption the fair value was built on. */
+  grossMargin?: number;
 }): Expectations | null {
   const { marketCap, netCash, fcfTtm } = input;
   if (!marketCap || marketCap <= 0) return null;
@@ -284,7 +392,19 @@ export function readExpectations(input: {
     };
   }
 
-  const g = solveInitialGrowth(ev, fcfTtm, horizonYears, discountRate, TERMINAL_GROWTH);
+  // Solved on the same margin path the fair value assumes. Without this the
+  // headline would read "the market is underwriting 149% growth" while the
+  // valuation beside it had already granted the margin expansion that explains
+  // most of that number.
+  const impliedMargin = marginConvergence(input);
+  const g = solveInitialGrowth(
+    ev,
+    fcfTtm,
+    horizonYears,
+    discountRate,
+    TERMINAL_GROWTH,
+    impliedMargin
+  );
   if (g === null) {
     return {
       ...base,

@@ -11,8 +11,26 @@ const crons = cronJobs();
  */
 crons.cron("extract earnings releases", "40 3 * * 2-6", internal.ingest.extractReleasesAll, {});
 
-/** Full watchlist re-score after the US close. 05:00 UTC = ~06:00 London. */
-crons.cron("daily watchlist eval", "0 5 * * 2-6", internal.ingest.refreshWatchlist, {});
+/**
+ * The opinion is re-formed twice a day rather than once.
+ *
+ * A verdict blends fundamentals with the current price, and only the
+ * fundamentals were being treated as slow-moving. Between one morning sweep and
+ * the next the price could move ten percent and the rating would not budge:
+ * the intraday quote cron refreshes the price and the band it falls in, but not
+ * the judgement built on top of them.
+ *
+ * Two runs at deliberately different points in the cycle - one on settled
+ * prices after the US close, one mid-session so the rating reflects the day
+ * actually being traded. Re-running is safe by construction: fireAlert re-arms
+ * on ticker and type and patches an open alert in place rather than inserting,
+ * so the second pass refreshes the figures behind an alert without notifying
+ * twice, and the allocation snapshot keeps its own once-daily cron.
+ */
+/** Settled prices from the previous close. 05:00 UTC = ~06:00 London. */
+crons.cron("watchlist eval post-close", "0 5 * * 2-6", internal.ingest.refreshWatchlist, {});
+/** Mid-session, 18:20 UTC = 14:20 New York = ~19:20 London. */
+crons.cron("watchlist eval mid-session", "20 18 * * 1-5", internal.ingest.refreshWatchlist, {});
 
 /** Ticker/CIK map + exchange listings. */
 crons.cron("weekly universe refresh", "17 3 * * 0", internal.ingest.refreshUniverseCron, {});

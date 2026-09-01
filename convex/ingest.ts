@@ -401,6 +401,9 @@ async function doRefreshTicker(
     netDebtToEbitda: metrics.netDebtToEbitda,
     trajectoryGrowth: trajectory?.perShareGrowth,
     trajectoryConfidence: trajectory?.confidence,
+    // So implied growth is solved against the same margin path the fair value
+    // is built on, rather than the two disagreeing by construction.
+    grossMargin: metrics.grossMarginPct,
   });
 
   // ---- valuation ------------------------------------------------------

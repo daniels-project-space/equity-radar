@@ -300,6 +300,12 @@ export function valuate(i: ValuationInput): Valuation | null {
       netDebtToEbitda: i.netDebtToEbitda,
       trajectoryGrowth: i.trajectoryGrowth,
       trajectoryConfidence: i.trajectoryConfidence,
+      // Lets the margin converge toward maturity for a business that is
+      // suppressing cash flow to buy growth, rather than freezing today's
+      // reinvestment rate for the whole horizon.
+      revenueTtm: i.revenueTtm,
+      // Named Pct but stored as a fraction, like everything else here.
+      grossMargin: i.grossMarginPct,
     });
     if (jv) {
       add(
@@ -403,7 +409,7 @@ export function valuate(i: ValuationInput): Valuation | null {
   const confidence: Valuation["confidence"] =
     methods.length >= 3 && dispersion < 0.35 ? "high" : dispersion < 0.7 ? "medium" : "low";
 
-  const bands = buildBands(fairValue, marginOfSafety, anchor);
+  const bands = buildBands(fairValue, marginOfSafety, anchor, i.price);
 
   return {
     archetype,
@@ -441,7 +447,7 @@ export function valuate(i: ValuationInput): Valuation | null {
  * how cheap something is, the verdict says what the model thinks of it, and when
  * they diverge that is information rather than a contradiction.
  */
-function buildBands(fv: number, mos: number, anchor: number): Band[] {
+function buildBands(fv: number, mos: number, anchor: number, price?: number): Band[] {
   const edges: { label: string; action: string; lo: number; hi: number }[] = [
     { label: "Deep discount", action: "BUY_AGGRESSIVE", lo: 0, hi: 1 - 2 * mos },
     { label: "Well below value", action: "BUY", lo: 1 - 2 * mos, hi: 1 - mos },
@@ -450,6 +456,42 @@ function buildBands(fv: number, mos: number, anchor: number): Band[] {
     { label: "Above value", action: "HOLD", lo: 1 + mos / 2, hi: 1 + mos },
     { label: "Well above value", action: "TRIM", lo: 1 + mos, hi: 1 + 2.5 * mos },
   ];
+
+  // The table has to contain the price.
+  //
+  // Four names on this watchlist traded clean off the top of their own chart -
+  // CrowdStrike at 3.1x the highest band, Cloudflare at 2.7x, Marvell at 1.5x -
+  // and the band table simply stopped, leaving the stock in a nameless region
+  // above every zone the model could describe. "Above range" is not an opinion,
+  // it is the model declining to have one, and it happened to exactly the
+  // companies whose growth is the whole question.
+  //
+  // Margin convergence in the cash-flow method fixes most of the cause. This
+  // fixes the presentation: where price still sits above the top band, the
+  // scale is extended in the same proportional steps until it reaches, so the
+  // chart always says how far beyond value the price is instead of going quiet.
+  // The extra zones are labelled for what they are - the model is not claiming
+  // these are reasonable prices, it is measuring the distance.
+  const EXTRA = [
+    { label: "Far above value", action: "TRIM" },
+    { label: "Priced for perfection", action: "TRIM" },
+    { label: "Beyond any modelled case", action: "TRIM" },
+  ];
+  if (price && price > 0 && fv > 0) {
+    const top = edges[edges.length - 1].hi;
+    const need = price / fv;
+    if (need >= top) {
+      // The step is sized to the distance rather than fixed, so three zones
+      // always reach. A fixed step left Cloudflare short at 1.4x the new top,
+      // which is the same failure one rung further up the ladder.
+      const step = ((need * 1.08 - top) / EXTRA.length);
+      let lo = top;
+      for (const e of EXTRA) {
+        edges.push({ label: e.label, action: e.action, lo, hi: lo + step });
+        lo += step;
+      }
+    }
+  }
   return edges.map((e) => ({
     label: e.label,
     action: e.action,
