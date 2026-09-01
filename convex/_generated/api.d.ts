@@ -18,6 +18,7 @@ import type * as ingest from "../ingest.js";
 import type * as journal from "../journal.js";
 import type * as lib_allocator from "../lib/allocator.js";
 import type * as lib_anchorHistory from "../lib/anchorHistory.js";
+import type * as lib_buyLevels from "../lib/buyLevels.js";
 import type * as lib_calibrate from "../lib/calibrate.js";
 import type * as lib_crypto from "../lib/crypto.js";
 import type * as lib_cryptoCalibrate from "../lib/cryptoCalibrate.js";
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   journal: typeof journal;
   "lib/allocator": typeof lib_allocator;
   "lib/anchorHistory": typeof lib_anchorHistory;
+  "lib/buyLevels": typeof lib_buyLevels;
   "lib/calibrate": typeof lib_calibrate;
   "lib/crypto": typeof lib_crypto;
   "lib/cryptoCalibrate": typeof lib_cryptoCalibrate;

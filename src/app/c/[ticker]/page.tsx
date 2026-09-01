@@ -161,6 +161,17 @@ export default function CompanyPage() {
   // a business has earned; realized price is a cost basis, not a fair value, and
   // there are no earnings to grow. Compounding it at a default rate would be a
   // forecast with nothing behind it.
+  const lv = m?.buyLevels as
+    | {
+        intrinsic?: number;
+        relative?: number;
+        blended?: number;
+        relativeWeight?: number;
+        discountToPrice?: number;
+        summary?: string;
+      }
+    | undefined;
+
   const outlook = isCrypto ? null : projectReturns({
     price: p?.last,
     fairValue: b?.fairValue,
@@ -310,6 +321,7 @@ export default function CompanyPage() {
             }
             closesOnly={isCrypto}
             relativeBands={m?.relativeBands?.bands}
+            buyLevel={m?.buyLevels?.blended}
             profileBands={profileBands}
             profileNote={
               prof?.val && prof?.vah && prof?.poc
@@ -377,6 +389,49 @@ export default function CompanyPage() {
             statistics as a quality assessment. */}
         <Column title={isCrypto ? "How it behaves" : "How good it is"}>
           {m?.linkage && <LinkagePanel data={m.linkage} />}
+          {!isCrypto && lv?.blended !== undefined && (
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4">
+              <h3 className="text-[11px] uppercase tracking-wide text-[var(--muted)]">
+                Where to buy
+              </h3>
+              <p className="mt-2 text-[20px] font-semibold tabular" style={{ color: "var(--good)" }}>
+                {usd(lv.blended)}
+                {lv.discountToPrice !== undefined && (
+                  <span className="ml-2 text-[13px] font-normal text-[var(--muted)]">
+                    {Math.abs(lv.discountToPrice)}% below today
+                  </span>
+                )}
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-[12px]">
+                <div>
+                  <div className="text-[var(--muted)]">On cash flows</div>
+                  <div className="tabular">{usd(lv.intrinsic)}</div>
+                </div>
+                <div>
+                  <div className="text-[var(--muted)]">On its own record</div>
+                  <div className="tabular">{usd(lv.relative)}</div>
+                </div>
+              </div>
+              {lv.relativeWeight !== undefined && (
+                <div className="mt-3">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--panel-2)]">
+                    <div
+                      className="h-full rounded-full bg-[var(--good)]"
+                      style={{ width: `${Math.round(lv.relativeWeight * 100)}%` }}
+                    />
+                  </div>
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    {Math.round(lv.relativeWeight * 100)}% of the blend comes from its own trading
+                    record — earned by how many quarters that record covers and how steady the
+                    multiple has been, not chosen.
+                  </p>
+                </div>
+              )}
+              {lv.summary && (
+                <p className="mt-3 text-[12px] leading-relaxed text-[var(--muted)]">{lv.summary}</p>
+              )}
+            </div>
+          )}
           {range && <RangePanel data={range} price={p?.last} />}
           {p?.profile && <ProfilePanel data={p.profile} price={p?.last} />}
           {!isCrypto && <PillarBars pillars={pillars} />}

@@ -21,6 +21,7 @@ import { priceProfile } from "./lib/profile";
 import { measureLinkage } from "./lib/linkage";
 import { buildAnchorHistory, buildRelativeBands } from "./lib/anchorHistory";
 import { buildScenarios } from "./lib/scenarios";
+import { buyLevels } from "./lib/buyLevels";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fmt = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "n/a");
@@ -220,6 +221,7 @@ async function doRefreshTicker(
   // TTM EPS at each past quarter end, priced at the close on that date, gives
   // the multiple the market actually assigned this company over time.
   const ownPes: number[] = [];
+  const ownEvSales: number[] = [];
   {
     const barByDate = new Map(storedBars.map((b) => [b.date, b.c]));
     const closeOn = (date: string): number | undefined => {
@@ -241,8 +243,61 @@ async function doRefreshTicker(
       if (px === undefined) continue;
       ownPes.push(px / ttm);
     }
+
+    /**
+     * The same question asked on sales, which every company has.
+     *
+     * The P/E version drops out for anything barely profitable, which is the
+     * whole set of names where it was most needed - Cloudflare and CrowdStrike
+     * lost their own-history method entirely and were left with an absolute
+     * model that put them 80% overvalued and offered a buy level the market has
+     * never come close to. Revenue does not go to zero, so this one always
+     * computes.
+     *
+     * Priced with TODAY's share count rather than the count filed at the time.
+     * Filed share counts are not restated for splits while the price history is
+     * adjusted back, and mixing the two put Netflix's own historical multiple at
+     * 1.0x sales and CrowdStrike's at 4.8x - neither has ever traded within an
+     * order of magnitude of those. Using today's count throughout cancels the
+     * split on both sides, and moved them to 8.2x and 22.1x, which are real.
+     */
+    const sharesNow = quarters[0]?.sharesDiluted;
+    if (sharesNow && sharesNow > 0) {
+      for (let i = 0; i + 3 < quarters.length && ownEvSales.length < 40; i++) {
+        const window = quarters.slice(i, i + 4).map((q) => q.revenue);
+        if (!window.every((x): x is number => typeof x === "number")) continue;
+        const ttm = window.reduce((s: number, x: number) => s + x, 0);
+        if (ttm <= 0) continue;
+        const px = closeOn(quarters[i].periodEnd);
+        if (px === undefined) continue;
+        const netDebt = (quarters[i].totalDebt ?? 0) - (quarters[i].cash ?? 0);
+        const ev = px * sharesNow + netDebt;
+        if (ev > 0) ownEvSales.push(ev / ttm);
+      }
+    }
   }
   const ownMedianPe = median(ownPes);
+  const ownMedianEvSales = median(ownEvSales);
+  // The level this has been cheap at on its own record, rather than the middle
+  // of it. A median says "normally priced"; a buy level has to be lower than
+  // normal or it is not a buy level.
+  const ownP25EvSales = (() => {
+    if (ownEvSales.length < 6) return undefined;
+    const a = [...ownEvSales].sort((x, y) => x - y);
+    return a[Math.floor(a.length * 0.25)];
+  })();
+  // How steady that record is. A multiple that swung by half of itself is weak
+  // evidence about where this name is cheap, and the blend below leans on it
+  // less accordingly.
+  const ownEvSalesCv = (() => {
+    if (ownEvSales.length < 6) return undefined;
+    const mean = ownEvSales.reduce((a, b) => a + b, 0) / ownEvSales.length;
+    if (!(mean > 0)) return undefined;
+    const sd = Math.sqrt(
+      ownEvSales.reduce((s, x) => s + (x - mean) ** 2, 0) / (ownEvSales.length - 1)
+    );
+    return sd / mean;
+  })();
 
   // ---- peers --------------------------------------------------------
   let peerMedianFwdPe: number | undefined;
@@ -438,6 +493,9 @@ async function doRefreshTicker(
     grossMarginPct: metrics.grossMarginPct,
     ownMedianPe,
     ownPeSamples: ownPes.length,
+    ownMedianEvSales,
+    ownP25EvSales,
+    ownEvSalesSamples: ownEvSales.length,
     anchorOverride: bandSettings.mode === "fixed" ? bandSettings.fixedMultiple : undefined,
   });
   const anchors = buildAnchorHistory(quarters, latestQ?.sharesDiluted, archetype);
@@ -464,6 +522,20 @@ async function doRefreshTicker(
       : undefined,
   });
 
+  // Where to actually buy, as a mix of the two honest bases rather than a
+  // choice between them. See lib/buyLevels.ts.
+  const levels = buyLevels({
+    price: stats?.last,
+    fairValue: valuation?.fairValue,
+    marginOfSafety: valuation?.marginOfSafety,
+    revenueTtm: metrics.revenueTtm,
+    netCash: metrics.netCash,
+    shares: latestQ?.sharesDiluted,
+    ownP25EvSales,
+    ownEvSalesSamples: ownEvSales.length,
+    ownEvSalesCv,
+  });
+
   if (valuation) await ctx.runMutation(internal.data.storeBands, { ticker: t, bands: valuation });
   else notes.push("valuation not computable — no share count");
 
@@ -484,6 +556,7 @@ async function doRefreshTicker(
       trajectory: trajectory ?? undefined,
       linkage,
       scenarios,
+      buyLevels: levels ?? undefined,
       // The valuation as it stood at each past filing, so the chart can mark
       // zones against what was known then rather than against today's estimate.
       anchorHistory: anchors,

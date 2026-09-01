@@ -181,6 +181,7 @@ export function PriceChart({
   relativeNote,
   profileBands,
   profileNote,
+  buyLevel,
 }: {
   bars: Bar[];
   bands: Band[];
@@ -201,6 +202,8 @@ export function PriceChart({
    */
   profileBands?: Band[];
   profileNote?: string;
+  /** Blended buy level - intrinsic and own-record mixed. See lib/buyLevels.ts. */
+  buyLevel?: number;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -209,6 +212,7 @@ export function PriceChart({
   const sma50Ref = useRef<ISeriesApi<"Line"> | null>(null);
   const sma200Ref = useRef<ISeriesApi<"Line"> | null>(null);
   const fvLineRef = useRef<IPriceLine | null>(null);
+  const buyLineRef = useRef<IPriceLine | null>(null);
 
   const [rangeIdx, setRangeIdx] = useState(1);
   const [rects, setRects] = useState<{ band: Band; top: number; height: number }[]>([]);
@@ -478,10 +482,27 @@ export function PriceChart({
       });
     }
 
+    // The level to act on, as opposed to the level it is worth. These are
+    // different numbers and the chart says so rather than picking one.
+    if (buyLineRef.current) {
+      series.removePriceLine(buyLineRef.current);
+      buyLineRef.current = null;
+    }
+    if (buyLevel && buyLevel > 0) {
+      buyLineRef.current = series.createPriceLine({
+        price: buyLevel,
+        color: "#22c55e",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "buy",
+      });
+    }
+
     chart.timeScale().fitContent();
     requestAnimationFrame(recomputeBands);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bars, rangeIdx, bands, showMarkers, showMa, showEarnings, fairValue, earningsDates, relative, relativeBands, costBasis, basis, profileBands]);
+  }, [bars, rangeIdx, bands, showMarkers, showMa, showEarnings, fairValue, earningsDates, relative, relativeBands, costBasis, basis, profileBands, buyLevel]);
 
   const toggle = (label: string, on: boolean, set: (v: boolean) => void, title?: string) => (
     <label

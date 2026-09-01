@@ -253,6 +253,8 @@ export default defineSchema({
     linkage: v.optional(v.any()),
     /** Bear/base/bull with the conditions each requires. See lib/scenarios.ts. */
     scenarios: v.optional(v.any()),
+    /** Intrinsic / relative / blended buy levels. See lib/buyLevels.ts. */
+    buyLevels: v.optional(v.any()),
     /** Causal fair-value series. See lib/anchorHistory.ts. */
     anchorHistory: v.optional(v.any()),
     /** Zones from this name's own pricing history, not from fair value. */

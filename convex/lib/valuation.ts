@@ -58,6 +58,11 @@ export type ValuationInput = {
   /** Median P/E this company has actually traded at over its own history. */
   ownMedianPe?: number;
   ownPeSamples?: number;
+  /** Median and 25th-percentile EV/Sales this company has actually traded at,
+   *  measured split-neutrally over its own history. Works where P/E cannot. */
+  ownMedianEvSales?: number;
+  ownP25EvSales?: number;
+  ownEvSalesSamples?: number;
   /** User anchor. Its meaning depends on archetype — P/E, EV/S or NAV premium. */
   anchorOverride?: number;
   /** How demanding the price already is; widens the margin of safety. */
@@ -145,19 +150,25 @@ const WEIGHTS: Record<Archetype, Record<string, number>> = {
   assetHolding: { nav: 0.75, bookValue: 0.15, evSales: 0.1 },
   financial: { bookValue: 0.5, epsMultiple: 0.5 },
   reit: { fcfYield: 0.6, bookValue: 0.4 },
-  preProfit: { evSales: 0.7, bookValue: 0.3 },
+  // ownHistoryEvSales carries the most weight here for the same reason
+  // expectationsDcf does below: every other method available to a pre-profit
+  // company is an absolute sales multiple with a hand-set ceiling, and those
+  // have been saying "80% overvalued" about the same names for years. What the
+  // market has actually paid for this company's revenue is evidence.
+  preProfit: { ownHistoryEvSales: 0.4, evSales: 0.4, bookValue: 0.2 },
   // expectationsDcf carries real weight because it is the only method here that
   // is not a multiple. Every other one anchors on a trailing ratio, so in a
   // market where multiples have re-rated upward they all say "expensive"
   // together and the blend has no way to tell a compounder from a melting ice
   // cube. The cash-flow model disagrees with them when growth justifies it.
   earnings: {
-    epsMultiple: 0.24,
-    expectationsDcf: 0.25,
-    ownHistory: 0.2,
-    evEbit: 0.16,
-    fcfYield: 0.1,
-    evSales: 0.05,
+    epsMultiple: 0.2,
+    expectationsDcf: 0.22,
+    ownHistory: 0.17,
+    ownHistoryEvSales: 0.15,
+    evEbit: 0.14,
+    fcfYield: 0.08,
+    evSales: 0.04,
   },
 };
 
@@ -259,6 +270,38 @@ export function valuate(i: ValuationInput): Valuation | null {
       eps * clamp(i.ownMedianPe, 5, 70),
       `${r2(clamp(i.ownMedianPe, 5, 70))}x — its own median over ${i.ownPeSamples} quarters`
     );
+  }
+
+  // --- own trading history, on sales ---
+  // The P/E version above needs positive earnings, so it abandons exactly the
+  // companies that most need it: a reinvesting grower has no meaningful E, and
+  // without this the only surviving methods are absolute ones that have said
+  // "80% overvalued" every year for a decade while the market disagreed. Revenue
+  // is always there. What the market has paid for THIS company's revenue over
+  // its own history is a real valuation input - relative valuation is not a
+  // lesser discipline than intrinsic, it is the other half of the standard pair.
+  //
+  // It is one weighted method, not the anchor, because on its own it is
+  // circular: it would ratify whatever the market has been doing. The intrinsic
+  // methods keep their voice, and where the two disagree the dispersion widens
+  // the margin of safety, which is exactly what disagreement should do.
+  if (
+    i.revenueTtm &&
+    i.revenueTtm > 0 &&
+    i.ownMedianEvSales &&
+    i.ownMedianEvSales > 0.2 &&
+    (i.ownEvSalesSamples ?? 0) >= 6
+  ) {
+    const mult = clamp(i.ownMedianEvSales, 0.2, 60);
+    const perShare = (mult * i.revenueTtm + netCash) / shares;
+    if (perShare > 0) {
+      add(
+        "ownHistoryEvSales",
+        "What the market pays for its sales",
+        perShare,
+        `${r2(mult)}x sales — its own median over ${i.ownEvSalesSamples} quarters`
+      );
+    }
   }
 
   // --- EV/EBIT ---
