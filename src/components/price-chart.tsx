@@ -243,11 +243,20 @@ export function PriceChart({
     if (userPicked || !profileBands?.length || !bands.length || !bars.length) return;
     const price = bars[bars.length - 1]?.c;
     if (!price) return;
-    const top = Math.max(...bands.map((b) => b.priceHi));
-    const bottomBuy = bands.find((b) => b.action === "BUY" || b.action === "BUY_AGGRESSIVE");
-    const unreachable =
-      price > top || (bottomBuy !== undefined && price > bottomBuy.priceHi * 2.5);
-    if (unreachable) setBasis("area");
+    // The test is whether a BUY zone is reachable, not whether the table
+    // contains the price - the table always contains it now that the scale
+    // extends. Measured against the TOP of the buy region: anchoring on the
+    // deep-discount band instead put every ordinarily-priced name over the line,
+    // because the lowest band always sits far under the market. Cisco at 1.9x
+    // its buy ceiling and Strategy at 1.4x were both switched away from a
+    // valuation view they were sitting comfortably inside.
+    const buyTop = Math.max(
+      ...bands
+        .filter((b) => b.action === "BUY" || b.action === "BUY_AGGRESSIVE")
+        .map((b) => b.priceHi),
+      0
+    );
+    if (buyTop > 0 && price > buyTop * 2.5) setBasis("area");
   }, [userPicked, profileBands, bands, bars]);
     // On, by request. The measurement behind the caption still stands — after the
   // look-ahead was removed these crossings returned a median -8.3% over the
