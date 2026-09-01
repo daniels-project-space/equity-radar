@@ -165,6 +165,7 @@ export default function CompanyPage() {
     | {
         intrinsic?: number;
         relative?: number;
+        relativeDiscarded?: boolean;
         blended?: number;
         relativeWeight?: number;
         discountToPrice?: number;
@@ -394,10 +395,10 @@ export default function CompanyPage() {
               <h3 className="text-[11px] uppercase tracking-wide text-[var(--muted)]">
                 Where to buy
               </h3>
-              <p className="mt-2 text-[20px] font-semibold tabular" style={{ color: "var(--good)" }}>
-                {usd(lv.blended)}
+              <p className="mt-2 flex flex-wrap items-baseline gap-x-2 text-[20px] font-semibold tabular" style={{ color: "var(--good)" }}>
+                <span>{usd(lv.blended)}</span>
                 {lv.discountToPrice !== undefined && (
-                  <span className="ml-2 text-[13px] font-normal text-[var(--muted)]">
+                  <span className="text-[13px] font-normal text-[var(--muted)]">
                     {Math.abs(lv.discountToPrice)}% below today
                   </span>
                 )}
@@ -409,10 +410,16 @@ export default function CompanyPage() {
                 </div>
                 <div>
                   <div className="text-[var(--muted)]">On its own record</div>
-                  <div className="tabular">{usd(lv.relative)}</div>
+                  <div className="tabular">
+                    {lv.relativeDiscarded ? (
+                      <span className="text-[var(--muted)]">too erratic to use</span>
+                    ) : (
+                      usd(lv.relative)
+                    )}
+                  </div>
                 </div>
               </div>
-              {lv.relativeWeight !== undefined && (
+              {lv.relativeWeight !== undefined && lv.relativeWeight > 0.05 && (
                 <div className="mt-3">
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--panel-2)]">
                     <div

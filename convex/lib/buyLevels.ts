@@ -33,8 +33,12 @@
 export type BuyLevels = {
   /** Fair value less the margin of safety. Absolute, often unreachable. */
   intrinsic?: number;
-  /** The cheap end of what the market has paid for its sales. Always reachable. */
+  /** The cheap end of what the market has paid for its sales. Always reachable.
+   *  Omitted when the record earned no weight, so the display cannot show a
+   *  number the blend already rejected. */
   relative?: number;
+  /** True when a relative level existed but was too erratic to use. */
+  relativeDiscarded?: boolean;
   /** Geometric blend, weighted by how much the relative record is worth. */
   blended?: number;
   /** Weight given to the relative level, 0-1. */
@@ -100,23 +104,46 @@ export function buyLevels(input: {
 
   const discountToPrice = blended ? r2((blended / price - 1) * 100) : undefined;
 
+  // When the record earned no weight the blend ignored it, and presenting the
+  // number anyway as a co-equal basis is worse than not showing it. Strategy is
+  // the case: its EV/Sales record reaches back to when it was a small software
+  // company at 1.5x sales, before the balance sheet became the business, so the
+  // cheap end of that record prices it at $1.48. The weighting already threw
+  // that away for being erratic; the display has to agree with the weighting.
+  const relativeUsable = w > 0.05 ? relative : undefined;
+  const relativeDiscarded = relative !== undefined && relativeUsable === undefined;
+
   let summary: string;
-  if (intrinsic === undefined || relative === undefined) {
+  if (intrinsic === undefined && relativeUsable === undefined) {
+    summary = blended === undefined ? "Not enough to place a buy level on." : `Only one basis is available, so the level is $${blended}.`;
+  } else if (relativeDiscarded) {
     summary =
-      blended === undefined
-        ? "Not enough to place a buy level on."
-        : `Only one basis is available, so the level is ${intrinsic !== undefined ? "intrinsic" : "relative"} alone at $${blended}.`;
+      `Its own trading record was too erratic to lean on - the multiple has swung far enough that the cheap end of it ` +
+      `is not a level so much as an artefact of a different era of the business - so this is the cash-flow level alone, ` +
+      `$${blended}, ${Math.abs(discountToPrice ?? 0)}% below today.`;
+  } else if (intrinsic === undefined || relativeUsable === undefined) {
+    summary = `Only one basis is available, so the level is $${blended}, ${Math.abs(discountToPrice ?? 0)}% below today.`;
   } else {
-    const ratio = relative / intrinsic;
+    // Symmetric: the two can disagree in either direction, and dividing one way
+    // called a 48x gap "agreement" because the quotient came out at 0.02.
+    const ratio = Math.max(relativeUsable / intrinsic, intrinsic / relativeUsable);
     summary =
       ratio > 2
-        ? `The two bases disagree by ${ratio.toFixed(1)}x: cash flows say $${intrinsic}, its own trading record says $${relative}. ` +
-          `That gap is the finding - this is a name the market has consistently paid far more for than the cash justifies, ` +
-          `and whether that persists is the question the model cannot settle. The blend sits at $${blended}, ` +
-          `${Math.abs(discountToPrice ?? 0)}% below today.`
-        : `Both bases agree within ${ratio.toFixed(1)}x - cash flows say $${intrinsic}, its own record says $${relative} - ` +
+        ? `The two bases disagree by ${ratio.toFixed(1)}x: cash flows say $${intrinsic}, its own trading record says $${relativeUsable}. ` +
+          `That gap is the finding rather than a problem to average away - the market has persistently paid a different price ` +
+          `for this than the cash justifies, and whether that persists is what the model cannot settle. The blend sits at ` +
+          `$${blended}, ${Math.abs(discountToPrice ?? 0)}% below today.`
+        : `Both bases agree within ${ratio.toFixed(1)}x - cash flows say $${intrinsic}, its own record says $${relativeUsable} - ` +
           `so $${blended} is a level worth trusting, ${Math.abs(discountToPrice ?? 0)}% below today.`;
   }
 
-  return { intrinsic, relative, blended, relativeWeight: r2(w), discountToPrice, summary };
+  return {
+    intrinsic,
+    relative: relativeUsable,
+    relativeDiscarded,
+    blended,
+    relativeWeight: r2(w),
+    discountToPrice,
+    summary,
+  };
 }
