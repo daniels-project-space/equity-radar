@@ -608,10 +608,30 @@ export function PriceChart({
           ))}
         </div>
         <p className="leading-relaxed">
-          The bands are price against fair value, nothing else. Their width is this stock&rsquo;s own
-          margin of safety, so a volatile name gets wider zones than a steady one. They describe how
-          cheap the price is — the rating above the chart is a separate judgement that also weighs
-          growth, quality and moat, so the two can legitimately disagree.
+          {basis === "area" ? (
+            <>
+              These bands are where the stock actually traded over the last year — the middle of the
+              volume distribution, not a valuation. They are shown because this name&rsquo;s buy zone
+              on fundamentals sits more than 2.5x below the market, so it offers no level anyone can
+              act on; these levels are reachable because they already happened. Fair value is still
+              the dashed line and still says what it said. Switch to{" "}
+              <span className="text-[var(--text)]">fair value</span> for the valuation view.
+            </>
+          ) : basis === "own" ? (
+            <>
+              These bands are how this name has been priced against its own anchor over its history,
+              cut at percentiles. That answers where it is cheap <em>for this name</em>, which is a
+              different question from whether it is cheap — an asset that has always been expensive
+              would have its normal price shown as normal.
+            </>
+          ) : (
+            <>
+              The bands are price against fair value, nothing else. Their width is this stock&rsquo;s
+              own margin of safety, so a volatile name gets wider zones than a steady one. They
+              describe how cheap the price is — the rating above the chart is a separate judgement
+              that also weighs growth, quality and moat, so the two can legitimately disagree.
+            </>
+          )}
         </p>
       </div>
     </div>
