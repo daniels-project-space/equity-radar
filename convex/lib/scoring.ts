@@ -43,6 +43,10 @@ export type ScoreInputs = {
   peerMedianEvToSales?: number;
   /** Discount/premium to blended fair value, e.g. 0.25 = 25% below. */
   upsideToFairValue?: number;
+  /** Distance to the blended buy level - the price you would actually act at,
+   *  mixing intrinsic value with what the market has paid for this name. A
+   *  fraction: -0.3 means the level sits 30% below today. See lib/buyLevels.ts. */
+  gapToBuyLevel?: number;
   /** 0..100 moat level from the pillar assessment. */
   moatScore?: number;
 };
@@ -160,11 +164,24 @@ function valuationBucket(i: ScoreInputs): Bucket {
       key: "discountToFairValue",
       raw: i.upsideToFairValue ?? null,
       norm: norm(i.upsideToFairValue, -0.5, 0.8),
-      weight: 0.5,
+      weight: 0.35,
+    },
+    // Distance to the level you would actually act at, rather than to the
+    // estimate. These are different questions and the recommendation was only
+    // answering the first: a name can be far above intrinsic value and still be
+    // close to the price this specific company has historically been bought at,
+    // which is exactly the case the fair-value gap alone reads as "avoid" every
+    // year while the market disagrees. Scored so that standing at the level is
+    // full marks and 60% above it is zero.
+    {
+      key: "gapToBuyLevel",
+      raw: i.gapToBuyLevel ?? null,
+      norm: norm(i.gapToBuyLevel, -0.6, 0),
+      weight: 0.2,
     },
     // inverted ranges: 1.8x the peer multiple scores 0, 0.5x scores 100
-    { key: "peVsPeers", raw: relPe ?? null, norm: norm(relPe, 1.8, 0.5), weight: 0.15 },
-    { key: "evsVsPeers", raw: relEvs ?? null, norm: norm(relEvs, 1.8, 0.5), weight: 0.1 },
+    { key: "peVsPeers", raw: relPe ?? null, norm: norm(relPe, 1.8, 0.5), weight: 0.12 },
+    { key: "evsVsPeers", raw: relEvs ?? null, norm: norm(relEvs, 1.8, 0.5), weight: 0.08 },
     { key: "peAbsolute", raw: pe ?? null, norm: norm(pe, 55, 12), weight: 0.1 },
     { key: "peg", raw: peg ?? null, norm: norm(peg, 3.0, 0.4), weight: 0.15 },
   ]);

@@ -29,6 +29,7 @@ type Card = {
     latestPeriodEnd?: string;
     assetType?: string;
     cycle?: { zone?: string; tsmsv?: number; hasOnChain?: boolean };
+    buyLevels?: { blended?: number; discountToPrice?: number; relativeWeight?: number };
   } | null;
   score?: { asymmetry?: number; verdict?: string } | null;
   bands?: {
@@ -168,6 +169,28 @@ export function StockCard({ row, alerts = [] }: { row: Card; alerts?: CardAlert[
       </div>
 
       <Sparkline values={p?.spark30} width={220} height={38} />
+
+      {/* The one number that is an instruction rather than an observation. A
+          tile that shows price, day change and a rating still leaves the reader
+          to work out what price would make them act; this says it. */}
+      {!isCrypto && row.metrics?.buyLevels?.blended !== undefined && (
+        <div className="flex items-baseline justify-between text-[11px]">
+          <span className="text-[var(--muted)]">Buy at</span>
+          <span className="flex items-baseline gap-1.5">
+            <span className="tabular font-medium" style={{ color: "var(--good)" }}>
+              {usd(row.metrics.buyLevels.blended)}
+            </span>
+            {row.metrics.buyLevels.discountToPrice !== undefined && (
+              <span
+                className="tabular text-[var(--muted)]"
+                title="How far below today's price the blended buy level sits. It mixes discounted cash flows with what the market has historically paid for this company's sales."
+              >
+                {row.metrics.buyLevels.discountToPrice >= -1 ? "at or below now" : `${Math.abs(Math.round(row.metrics.buyLevels.discountToPrice))}% away`}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-2">
         {/* The rating carries the pullback state, because "cheap" and "the

@@ -78,6 +78,15 @@ export const listCompact = query({
               grossMarginPct: m.grossMarginPct,
               grossMarginDeltaYoY: m.grossMarginDeltaYoY,
               netDebtToEbitda: m.netDebtToEbitda,
+              // The level to act at, so a tile can show it without the card
+              // having to guess from fair value. Three numbers, not the object.
+              buyLevels: m.buyLevels
+                ? {
+                    blended: m.buyLevels.blended,
+                    discountToPrice: m.buyLevels.discountToPrice,
+                    relativeWeight: m.buyLevels.relativeWeight,
+                  }
+                : undefined,
               // Only the three fields keyFacts reads, not the whole object.
               expectations: m.expectations
                 ? {

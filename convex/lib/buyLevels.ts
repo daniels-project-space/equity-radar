@@ -62,6 +62,9 @@ export function buyLevels(input: {
   ownEvSalesSamples?: number;
   /** Dispersion of that history; an erratic multiple is weak evidence. */
   ownEvSalesCv?: number;
+  /** Delivered revenue growth, as a fraction. The relative level is priced on
+   *  the revenue this will have, not the revenue it had. */
+  revenueGrowth?: number;
 }): BuyLevels | null {
   const { price, fairValue, revenueTtm, shares } = input;
   if (!price || price <= 0) return null;
@@ -80,7 +83,17 @@ export function buyLevels(input: {
     shares &&
     shares > 0
   ) {
-    const v = (input.ownP25EvSales * revenueTtm + (input.netCash ?? 0)) / shares;
+    // Forward revenue, not trailing. A multiple from this company's own past
+    // applied to the revenue it had a year ago is stale twice over, and for a
+    // fast grower the staleness is the whole error: Cloudflare's sales rise
+    // about 30% a year, so pricing a historical multiple against trailing
+    // revenue marks the buy level 30% too low every single year and calls it
+    // conservatism. Relative valuation is done on forward numbers precisely
+    // because of this. Growth is capped at 40% and floored at zero so a hot
+    // year cannot inflate the level and a bad one cannot be extrapolated down.
+    const g = Math.max(0, Math.min(0.4, input.revenueGrowth ?? 0));
+    const fwdRevenue = revenueTtm * (1 + g);
+    const v = (input.ownP25EvSales * fwdRevenue + (input.netCash ?? 0)) / shares;
     if (v > 0) relative = r2(v);
   }
 

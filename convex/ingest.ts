@@ -534,6 +534,7 @@ async function doRefreshTicker(
     ownP25EvSales,
     ownEvSalesSamples: ownEvSales.length,
     ownEvSalesCv,
+    revenueGrowth: trajectory?.growth ?? metrics.revYoY,
   });
 
   if (valuation) await ctx.runMutation(internal.data.storeBands, { ticker: t, bands: valuation });
@@ -586,6 +587,10 @@ async function doRefreshTicker(
   const result = computeScore({
     ...scoreInputs,
     upsideToFairValue: valuation?.upside === undefined ? undefined : valuation.upside / 100,
+    // The recommendation now weighs distance to the actionable level, not only
+    // distance to the estimate.
+    gapToBuyLevel:
+      levels?.discountToPrice === undefined ? undefined : levels.discountToPrice / 100,
     moatScore: moat.score,
   });
   await ctx.runMutation(internal.data.storeScore, { ticker: t, score: result });
