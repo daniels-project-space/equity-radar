@@ -481,7 +481,7 @@ export function PriceChart({
     chart.timeScale().fitContent();
     requestAnimationFrame(recomputeBands);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bars, rangeIdx, bands, showMarkers, showMa, showEarnings, fairValue, earningsDates, relative, relativeBands, costBasis]);
+  }, [bars, rangeIdx, bands, showMarkers, showMa, showEarnings, fairValue, earningsDates, relative, relativeBands, costBasis, basis, profileBands]);
 
   const toggle = (label: string, on: boolean, set: (v: boolean) => void, title?: string) => (
     <label
