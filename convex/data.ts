@@ -71,6 +71,26 @@ export const fullBarsFor = internalQuery({
   },
 });
 
+/**
+ * One read for the ingestion action's close/volume statistics and recent
+ * OHLCV signals. Both projections come from the same indexed ticker history.
+ */
+export const priceSeriesForRefresh = internalQuery({
+  args: { ticker: v.string() },
+  handler: async (ctx, { ticker }) => {
+    const rows = await ctx.db
+      .query("prices_daily")
+      .withIndex("by_ticker_date", (i) => i.eq("ticker", ticker))
+      .collect();
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+    const recent = rows.slice(-260);
+    return {
+      bars: rows.map((r) => ({ date: r.date, c: r.c, v: r.v })),
+      ohlcv: recent.map((r) => ({ date: r.date, o: r.o, h: r.h, l: r.l, c: r.c, v: r.v })),
+    };
+  },
+});
+
 export const metricsFor = internalQuery({
   args: { tickers: v.array(v.string()) },
   handler: async (ctx, { tickers }) => {
