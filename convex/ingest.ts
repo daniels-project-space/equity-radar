@@ -145,8 +145,10 @@ async function doRefreshTicker(
     }
   }
 
-  const storedBars = await ctx.runQuery(internal.data.barsFor, { ticker: t });
-  const ohlcv = await ctx.runQuery(internal.data.fullBarsFor, { ticker: t });
+  const { bars: storedBars, ohlcv } = await ctx.runQuery(
+    internal.data.priceSeriesForRefresh,
+    { ticker: t },
+  );
   const dip = detectDip(ohlcv);
   const stats = derivePriceStats(storedBars.map((b) => ({ date: b.date, c: b.c, v: b.v })));
   if (stats) {
